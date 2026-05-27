@@ -621,7 +621,17 @@ elif st.session_state.pagina == "configura_campi":
                     st.markdown("—")
             with cols[4]:
                 if st.button("💾", key=f"save_cfg_{campo['id']}", help="Salva"):
-                    new_opzioni = [o.strip() for o in opts_str.split(",")] if opts_str and opts_str.strip() else None
+                    new_opzioni = None
+                    if tipo in ("single_select", "multi_select"):
+                        if opts_str and opts_str.strip():
+                            new_opzioni = [o.strip() for o in opts_str.split(",")]
+                        else:
+                            df_cfg = db.carica_dati(fid)
+                            if df_cfg is not None and campo['nome_campo'] in df_cfg.columns:
+                                vals = df_cfg[campo['nome_campo']].dropna().unique()
+                                new_opzioni = sorted([str(v) for v in vals if v != "" and str(v).strip() != ""])
+                                if not new_opzioni:
+                                    new_opzioni = [" "]
                     db.aggiorna_campo_config(campo["id"], tipo_campo=tipo, obbligatorio=obbl, opzioni=new_opzioni)
                     msg(f"Campo '{campo['nome_campo']}' aggiornato")
                     st.rerun()
