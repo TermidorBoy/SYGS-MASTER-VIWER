@@ -290,6 +290,16 @@ def init_data_table(file_id: int, df: pd.DataFrame):
     return safe_cols
 
 
+def init_data_table_vuoto(file_id: int, colonne: list):
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    conn.execute(f"DROP TABLE IF EXISTS [{table}]")
+    cols_def = [f'"{c.strip().replace(" ", "_").replace("'", "").replace("\"", "").replace(".", "_")}" TEXT' for c in colonne]
+    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, {", ".join(cols_def)})')
+    conn.commit()
+    conn.close()
+
+
 def carica_dati(file_id: int):
     conn = get_conn()
     table = f"dati_{file_id}"

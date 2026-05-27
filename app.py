@@ -254,17 +254,24 @@ elif st.session_state.pagina == "carica":
             contenuto = uploaded.read()
             uploaded.seek(0)
             df = pd.read_excel(uploaded, sheet_name=0, engine='openpyxl')
-            if df.empty:
-                msg("Il file è vuoto", "warning")
+            nome = uploaded.name
+            colonne = list(df.columns) if not df.empty else []
+            if not colonne:
+                msg("Il file non ha colonne", "error")
             else:
-                nome = uploaded.name
                 fid = db.salva_file_excel(st.session_state.utente["id"], nome,
-                                          "Sheet1", list(df.columns), len(df), contenuto)
-                db.init_data_table(fid, df)
-                db.init_campi_config(fid, list(df.columns))
+                                          "Sheet1", colonne, len(df), contenuto)
+                if not df.empty:
+                    db.init_data_table(fid, df)
+                else:
+                    db.init_data_table_vuoto(fid, colonne)
+                db.init_campi_config(fid, colonne)
                 st.session_state.file_id = fid
-                msg(f"✅ Importati {len(df)} record da '{nome}'")
-                st.session_state.pagina = "vedi_file"
+                if len(df) > 0:
+                    msg(f"✅ Importati {len(df)} record da '{nome}'")
+                else:
+                    msg(f"✅ Schema '{nome}' creato con {len(colonne)} colonne")
+                st.session_state.pagina = "configura_campi"
                 st.rerun()
         except Exception as e:
             msg(f"Errore: {e}", "error")
@@ -578,8 +585,14 @@ elif st.session_state.pagina == "configura_campi":
 
     campi = db.get_campi_config(fid)
     if not campi:
-        st.info("Nessuna configurazione trovata")
-        st.stop()
+        df = db.carica_dati(fid)
+        if df is not None:
+            db.init_campi_config(fid, [c for c in df.columns if c != "id"])
+            campi = db.get_campi_config(fid)
+    if not campi:
+        msg("Nessuna colonna trovata", "error")
+        st.session_state.pagina = "vedi_file"
+        st.rerun()
 
     for campo in campi:
         with st.container():
