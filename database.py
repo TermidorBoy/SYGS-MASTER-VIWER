@@ -316,6 +316,17 @@ def elimina_colonna(file_id: int, config_id: int, nome_colonna: str):
     conn.close()
 
 
+def rinomina_colonna(file_id: int, vecchio_nome: str, nuovo_nome: str):
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    safe_new = nuovo_nome.strip().replace(" ", "_").replace("'", "").replace('"', "").replace(".", "_")
+    conn.execute(f"ALTER TABLE [{table}] RENAME COLUMN \"{vecchio_nome}\" TO \"{safe_new}\"")
+    conn.execute("UPDATE campi_config SET nome_campo = ? WHERE file_id = ? AND nome_campo = ?",
+                 (nuovo_nome, file_id, vecchio_nome))
+    conn.commit()
+    conn.close()
+
+
 # ── Permessi ──
 
 def get_all_files():
