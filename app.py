@@ -3,7 +3,47 @@ import pandas as pd
 import os
 from pathlib import Path
 from datetime import datetime
+import openpyxl
 import database as db
+
+
+def leer_excel_con_formulas(source, sheet=0):
+    """Lee un Excel respetando las fórmulas como texto (=...) en lugar de valores cacheados.
+    source puede ser un file-like object (upload) o una ruta de archivo."""
+    import io
+    if isinstance(source, (str, Path)):
+        with open(source, 'rb') as f:
+            buf = io.BytesIO(f.read())
+    else:
+        source.seek(0)
+        buf = io.BytesIO(source.read())
+    buf.seek(0)
+    df = pd.read_excel(buf, sheet_name=sheet, engine='openpyxl')
+    if df.empty:
+        return df
+    buf.seek(0)
+    wb = openpyxl.load_workbook(buf, data_only=False)
+    ws = wb.active
+    if ws.max_row < 2:
+        wb.close()
+        return df
+    headers = [cell.value for cell in ws[1]]
+    col_map = {}
+    for ci, h in enumerate(headers):
+        if h is not None and h in df.columns:
+            col_map[ci] = h
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, values_only=False):
+        excel_row = row[0].row
+        df_row = excel_row - 2
+        if df_row >= len(df):
+            break
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.startswith('='):
+                ci = cell.column - 1
+                if ci in col_map:
+                    df.at[df_row, col_map[ci]] = cell.value
+    wb.close()
+    return df
 
 st.set_page_config(page_title="SYGS MASTER VIEWER", page_icon="📊", layout="wide",
                    initial_sidebar_state="expanded")
@@ -64,7 +104,7 @@ INIT = {
     "pagina": "login", "utente": None, "msg": "", "msg_tipo": "success",
     "file_id": None, "filtro_col": "", "filtro_val": "", "ricerca": "",
     "modifica_id": None, "vedi_id": None, "visuale": "tabella",
-    "modifiche_pendenti": [],
+    "modifiche_pendenti": [], "formula_mode": False,
 }
 for k, v in INIT.items():
     if k not in st.session_state:
@@ -163,6 +203,230 @@ if st.session_state.msg:
     fn = getattr(st, st.session_state.msg_tipo)
     fn(st.session_state.msg)
     st.session_state.msg = ""
+
+# ── FORMULA ENGINE ────────────────────────────────────────────
+import re as _re
+import math as _math
+
+class _FormulaError(Exception):
+    pass
+
+def _col_letter_to_idx(letters: str) -> int:
+    r = 0
+    for ch in letters.upper():
+        r = r * 26 + (ord(ch) - 64)
+    return r - 1
+
+def _tokenize(expr: str):
+    tokens = []
+    i = 0
+    n = len(expr)
+    while i < n:
+        ch = expr[i]
+        if ch.isspace():
+            i += 1
+        elif ch.isdigit() or (ch == '.' and i+1 < n and expr[i+1].isdigit()):
+            start = i
+            while i < n and (expr[i].isdigit() or expr[i] == '.'):
+                i += 1
+            tokens.append(('num', float(expr[start:i])))
+        elif ch.isalpha() or ch == '_':
+            start = i
+            while i < n and (expr[i].isalnum() or expr[i] == '_'):
+                i += 1
+            word = expr[start:i]
+            if i < n and expr[i] == '(':
+                tokens.append(('func', word.upper()))
+            else:
+                tokens.append(('cell', word))
+        elif ch in '+-*/^%()=,<>':
+            if ch in '<>=' and i+1 < n and expr[i+1] == '=':
+                tokens.append(('op', expr[i:i+2]))
+                i += 2
+            elif ch == '=':
+                tokens.append(('op', '='))
+                i += 1
+            elif ch == '<':
+                tokens.append(('op', '<'))
+                i += 1
+            elif ch == '>':
+                tokens.append(('op', '>'))
+                i += 1
+            else:
+                tokens.append(('op' if ch in '+-*/^%' else 'paren' if ch in '()' else 'comma', ch))
+                i += 1
+        elif ch in '"\'':
+            q = ch; i += 1; start = i
+            while i < n and expr[i] != q: i += 1
+            tokens.append(('str', expr[start:i]))
+            i += 1
+        else:
+            i += 1
+    tokens.append(('eof', None))
+    return tokens
+
+class _FP:
+    def __init__(self, toks, dcols, df, crow):
+        self.toks = toks; self.pos = 0
+        self.dcols = dcols; self.df = df; self.crow = crow
+    def peek(self):
+        return self.toks[self.pos] if self.pos < len(self.toks) else ('eof', None)
+    def eat(self, t=None, v=None):
+        p = self.peek()
+        if t and p[0] != t: raise _FormulaError(f"Esperado {t}, obtuvo {p[0]}")
+        if v and p[1] != v: raise _FormulaError(f"Esperado '{v}', obtuvo '{p[1]}'")
+        self.pos += 1; return p
+    def parse(self):
+        return self._expr()
+    def _expr(self):
+        r = self._comp()
+        while self.peek()[0] == 'op' and self.peek()[1] in ('+', '-'):
+            op = self.eat()[1]; right = self._comp()
+            r = (r + right) if op == '+' else (r - right)
+        return r
+    def _comp(self):
+        r = self._term()
+        while self.peek()[0] == 'op' and self.peek()[1] in ('=', '>', '<', '>=', '<=', '<>'):
+            op = self.eat()[1]; right = self._term()
+            if op == '=': r = r == right
+            elif op == '>': r = r > right
+            elif op == '<': r = r < right
+            elif op == '>=': r = r >= right
+            elif op == '<=': r = r <= right
+            elif op == '<>': r = r != right
+        return r
+    def _term(self):
+        r = self._pow()
+        while self.peek()[0] == 'op' and self.peek()[1] in ('*', '/', '%'):
+            op = self.eat()[1]; right = self._pow()
+            if op == '*': r = r * right
+            elif op == '/': r = r / right if right != 0 else '#DIV/0!'
+            elif op == '%': r = r % right if right != 0 else '#DIV/0!'
+        return r
+    def _pow(self):
+        r = self._unary()
+        if self.peek()[0] == 'op' and self.peek()[1] == '^':
+            self.eat(); r = r ** self._unary()
+        return r
+    def _unary(self):
+        if self.peek()[0] == 'op' and self.peek()[1] == '-':
+            self.eat(); return -self._prim()
+        if self.peek()[0] == 'op' and self.peek()[1] == '+':
+            self.eat(); return self._prim()
+        return self._prim()
+    def _cell_val(self, ref):
+        if ':' in ref:
+            return self._range_val(ref)
+        m = _re.match(r'^([A-Za-z]+)(\d+)$', ref)
+        if m:
+            ci = _col_letter_to_idx(m.group(1))
+            ri = int(m.group(2)) - 1
+            if 0 <= ci < len(self.dcols) and 0 <= ri < len(self.df):
+                v = self.df.iloc[ri][self.dcols[ci]]
+                if pd.notna(v):
+                    try: return float(v)
+                    except: return v
+            return 0
+        return 0
+    def _range_val(self, ref):
+        parts = ref.split(':')
+        if len(parts) != 2: return []
+        m1 = _re.match(r'^([A-Za-z]+)(\d+)$', parts[0])
+        m2 = _re.match(r'^([A-Za-z]+)(\d+)$', parts[1])
+        if not m1 or not m2: return []
+        c1, r1 = _col_letter_to_idx(m1.group(1)), int(m1.group(2)) - 1
+        c2, r2 = _col_letter_to_idx(m2.group(1)), int(m2.group(2)) - 1
+        vals = []
+        for r in range(min(r1,r2), max(r1,r2)+1):
+            for c in range(min(c1,c2), max(c1,c2)+1):
+                if 0 <= c < len(self.dcols) and 0 <= r < len(self.df):
+                    v = self.df.iloc[r][self.dcols[c]]
+                    if pd.notna(v):
+                        try: vals.append(float(v))
+                        except: pass
+        return vals
+    def _func(self, name, args):
+        if name == 'SUM':
+            vals = [v for a in args for v in (a if isinstance(a, list) else [a]) if isinstance(v, (int, float))]
+            return sum(vals)
+        elif name in ('AVERAGE','AVG'):
+            vals = [v for a in args for v in (a if isinstance(a, list) else [a]) if isinstance(v, (int, float))]
+            return sum(vals)/len(vals) if vals else 0
+        elif name == 'COUNT':
+            return sum(1 for a in args for v in (a if isinstance(a, list) else [a]) if v is not None and v != '')
+        elif name == 'MIN':
+            vals = [v for a in args for v in (a if isinstance(a, list) else [a]) if isinstance(v, (int, float))]
+            return min(vals) if vals else 0
+        elif name == 'MAX':
+            vals = [v for a in args for v in (a if isinstance(a, list) else [a]) if isinstance(v, (int, float))]
+            return max(vals) if vals else 0
+        elif name == 'IF':
+            if len(args) >= 2: return args[1] if args[0] else (args[2] if len(args) > 2 else '')
+            return 0
+        elif name == 'ABS':
+            return abs(args[0]) if args else 0
+        elif name == 'ROUND':
+            if len(args) >= 2: return round(args[0], int(args[1]))
+            return round(args[0]) if args else 0
+        elif name == 'PI':
+            return _math.pi
+        elif name == 'NOW':
+            from datetime import datetime
+            return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        elif name == 'TODAY':
+            from datetime import date
+            return str(date.today())
+        elif name == 'UPPER':
+            return str(args[0]).upper() if args else ''
+        elif name == 'LOWER':
+            return str(args[0]).lower() if args else ''
+        elif name == 'TRIM':
+            return str(args[0]).strip() if args else ''
+        elif name == 'LEN':
+            return len(str(args[0])) if args else 0
+        return 0
+    def _prim(self):
+        t = self.peek()
+        if t[0] == 'num': self.eat(); return t[1]
+        if t[0] == 'str': self.eat(); return t[1]
+        if t[0] == 'cell': self.eat(); return self._cell_val(t[1])
+        if t[0] == 'func':
+            name = self.eat()[1]
+            self.eat('paren', '(')
+            args = []
+            while not (self.peek()[0] == 'paren' and self.peek()[1] == ')'):
+                if args: self.eat('comma')
+                args.append(self._expr())
+            self.eat('paren', ')')
+            return self._func(name, args)
+        if t[0] == 'paren' and t[1] == '(':
+            self.eat(); r = self._expr(); self.eat('paren', ')'); return r
+        return 0
+
+def evaluar_formula(formula, df, row_idx, data_cols):
+    if not isinstance(formula, str) or not formula.startswith('='):
+        return formula
+    expr = formula[1:].strip()
+    if not expr: return ''
+    try:
+        toks = _tokenize(expr)
+        r = _FP(toks, data_cols, df, row_idx).parse()
+        if isinstance(r, float):
+            return int(r) if r == int(r) else round(r, 2)
+        return r
+    except Exception:
+        return '#ERROR!'
+
+def aplicar_formulas(df, data_cols):
+    if not st.session_state.get("formula_mode"):
+        return df
+    df2 = df.copy()
+    for col in data_cols:
+        for idx in df2.index:
+            val = df2.at[idx, col]
+            if isinstance(val, str) and val.startswith('='):
+                df2.at[idx, col] = evaluar_formula(val, df, idx, data_cols)
+    return df2
 
 # ── LOGIN ────────────────────────────────────────────────────────
 if st.session_state.pagina == "login":
@@ -272,8 +536,7 @@ elif st.session_state.pagina == "carica":
     if uploaded:
         try:
             contenuto = uploaded.read()
-            uploaded.seek(0)
-            df = pd.read_excel(uploaded, sheet_name=0, engine='openpyxl')
+            df = leer_excel_con_formulas(uploaded)
             nome = uploaded.name
             colonne = list(df.columns) if not df.empty else []
             if not colonne:
@@ -369,6 +632,8 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         is_new = st.session_state.pagina == "aggiungi_record"
         titolo = "➕ Nuovo record" if is_new else f"✏️ Modifica record #{st.session_state.modifica_id}"
         st.markdown(f"#### {titolo}")
+        if st.session_state.formula_mode:
+            st.caption("💡 Escribe `=A1+B1`, `=SUM(A1:A10)`, `=IF(A1>5,\"Si\",\"No\")` — las fórmulas se evalúan al visualizar")
 
         campi_config = db.get_campi_config(fid)
         if not campi_config:
@@ -410,6 +675,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             elif tipo == "boolean":
                 vals[c] = st.checkbox(etichetta, value=bool(dv) if dv is not None else False, key=f"f_{c}")
             elif tipo == "single_select":
+                if cfg.get("permitir_nuevo"):
+                    agregar = st.checkbox(f"➕ Nueva opción", key=f"nuevo_{c}")
+                    if agregar:
+                        vals[c] = st.text_input(etichetta, value=str(dv) if dv is not None else "", key=f"f_{c}")
+                        continue
                 idx = opts.index(str(dv)) if dv is not None and str(dv) in opts else 0
                 vals[c] = st.selectbox(etichetta, opts if opts else [""], index=idx, key=f"f_{c}")
             elif tipo == "multi_select":
@@ -467,9 +737,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "vedi_file"
             st.rerun()
         rec = rec_df.iloc[0]
+        row_idx = df.index[df['id'] == rid][0]
         st.markdown(f"#### 👁️ Record #{rid}")
         for c in colonne_dati:
             v = rec[c]
+            if st.session_state.formula_mode and isinstance(v, str) and v.startswith('='):
+                v = evaluar_formula(v, df, row_idx, colonne_dati)
             v = "—" if pd.isna(v) else v
             st.markdown(f"**{c}:** {v}")
         st.divider()
@@ -495,7 +768,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([1.5, 1, 1, 0.7, 0.7, 0.7, 0.7, 0.5])
+    tb = st.columns([1.5, 1, 1, 0.7, 0.7, 0.7, 0.7, 0.5, 0.5])
     with tb[0]:
         s = st.text_input("🔍 Cerca", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
@@ -545,18 +818,22 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.visuale = "kanban" if st.session_state.visuale == "tabella" else "tabella"
             st.rerun()
     with tb[7]:
+        f_label = "ƒx ON" if st.session_state.formula_mode else "ƒx OFF"
+        f_help = "Desactivar fórmulas" if st.session_state.formula_mode else "Activar fórmulas tipo Excel"
+        if st.button(f_label, use_container_width=True, help=f_help, type="primary" if st.session_state.formula_mode else "secondary"):
+            st.session_state.formula_mode = not st.session_state.formula_mode
+            st.rerun()
+    with tb[8]:
         if st.button("🔄", use_container_width=True, help="Ricarica dati"):
             try:
                 buf, foglio_db = db.get_file_contenuto(fid)
                 if buf:
-                    foglio_sn = info.get("foglio", 0)
-                    if foglio_sn == "Sheet1":
-                        foglio_sn = 0
-                    df_new = pd.read_excel(buf, sheet_name=foglio_sn, engine='openpyxl')
+                    import io
+                    df_new = leer_excel_con_formulas(io.BytesIO(buf))
                 else:
-                    df_new = pd.read_excel(info["percorso"], sheet_name=info["foglio"] if info["foglio"] != "Sheet1" else 0, engine='openpyxl')
+                    df_new = leer_excel_con_formulas(info["percorso"])
                 db.init_data_table(fid, df_new)
-                msg("✅ Dati ricaricati dal file Excel")
+                msg("✅ Dati ricaricati dal file Excel (fórmulas preservadas)")
             except Exception as e:
                 msg(f"Errore: {e}", "error")
             st.rerun()
@@ -675,8 +952,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
     # ── TABLE ──
     display_cols = colonne_dati
+    if st.session_state.formula_mode:
+        view_df_display = aplicar_formulas(view_df, display_cols)
+    else:
+        view_df_display = view_df
     ev = st.dataframe(
-        view_df[["id"] + display_cols],
+        view_df_display[["id"] + display_cols],
         use_container_width=True,
         hide_index=True,
         column_config={"id": "ID"},
@@ -692,8 +973,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
         st.divider()
         st.markdown(f"**Record #{rid}** selezionato")
-        # preview
-        preview = sel[display_cols[:min(4, len(display_cols))]]
+        # preview (show computed values if formula mode is on)
+        if st.session_state.formula_mode:
+            sel_display = aplicar_formulas(pd.DataFrame([sel]), display_cols).iloc[0]
+        else:
+            sel_display = sel
+        preview = sel_display[display_cols[:min(4, len(display_cols))]]
         for c, v in preview.items():
             v = "—" if pd.isna(v) else v
             st.markdown(f"**{c}:** {v}")
@@ -793,7 +1078,7 @@ elif st.session_state.pagina == "configura_campi":
                     for m in pendenti:
                         try:
                             if m["tipo"] == "aggiorna":
-                                db.aggiorna_campo_config(m["config_id"], tipo_campo=m["tipo_campo"], obbligatorio=m["obbl"], opzioni=m.get("opzioni"), mostra_modulo=m["mostra"], valore_predefinito=m.get("default"))
+                                db.aggiorna_campo_config(m["config_id"], tipo_campo=m["tipo_campo"], obbligatorio=m["obbl"], opzioni=m.get("opzioni"), mostra_modulo=m["mostra"], valore_predefinito=m.get("default"), permitir_nuevo=m.get("permitir_nuevo"))
                             elif m["tipo"] == "rinomina":
                                 db.rinomina_colonna(fid, m["vecchio"], m["nuovo"])
                             elif m["tipo"] == "elimina":
@@ -812,14 +1097,14 @@ elif st.session_state.pagina == "configura_campi":
         st.divider()
 
     # Header
-    hdr = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
-    for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Opzioni/Default", "", ""]):
+    hdr = st.columns([1.5, 1.3, 0.6, 0.6, 0.4, 1.5, 0.5, 0.4])
+    for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Nuevo", "Opzioni/Default", "", ""]):
         with h:
             st.markdown(f"**{label}**" if label else "")
 
     for campo in campi:
         with st.container():
-            cols = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
+            cols = st.columns([1.5, 1.3, 0.6, 0.6, 0.4, 1.5, 0.5, 0.4])
             with cols[0]:
                 nuovo_nome = st.text_input("Nome", value=campo["nome_campo"], key=f"nome_{campo['id']}", label_visibility="collapsed")
             with cols[1]:
@@ -836,6 +1121,12 @@ elif st.session_state.pagina == "configura_campi":
                 mostra = st.checkbox("Mostra nel form", value=campo["mostra_modulo"], key=f"mostra_{campo['id']}", label_visibility="collapsed")
             with cols[4]:
                 is_select = tipo in ("single_select", "multi_select")
+                permitir = campo.get("permitir_nuevo", False)
+                if tipo == "single_select":
+                    pnuevo = st.checkbox("Nuevo", value=permitir, key=f"pnuevo_{campo['id']}", label_visibility="collapsed", help="Permitir al usuario escribir opciones nuevas")
+                else:
+                    pnuevo = False
+            with cols[5]:
                 if is_select:
                     current_opts = ", ".join(campo.get("opzioni", [])) if campo.get("opzioni") else ""
                     opts_str = st.text_input("Opzioni", value=current_opts,
@@ -846,7 +1137,7 @@ elif st.session_state.pagina == "configura_campi":
                     opts_str = st.text_input("Default", value=dv,
                                              key=f"def_{campo['id']}", label_visibility="collapsed",
                                              placeholder="Valore default")
-            with cols[5]:
+            with cols[6]:
                 if st.button("📋", key=f"queue_{campo['id']}", help="Accoda modifica"):
                     new_opzioni = None
                     new_default = None
@@ -866,6 +1157,7 @@ elif st.session_state.pagina == "configura_campi":
                         "tipo": "aggiorna", "config_id": campo["id"],
                         "tipo_campo": tipo, "obbl": obbl, "mostra": mostra,
                         "opzioni": new_opzioni, "default": new_default,
+                        "permitir_nuevo": pnuevo,
                         "campo_old": campo["nome_campo"],
                     })
                     if nuovo_nome.strip() and nuovo_nome.strip() != campo["nome_campo"]:
@@ -874,7 +1166,7 @@ elif st.session_state.pagina == "configura_campi":
                             "vecchio": campo["nome_campo"], "nuovo": nuovo_nome.strip(),
                         })
                     st.toast(f"📋 '{campo['nome_campo']}' accodato ({len(st.session_state.modifiche_pendenti)})")
-            with cols[6]:
+            with cols[7]:
                 if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina"):
                     st.session_state.modifiche_pendenti.append({
                         "tipo": "elimina", "config_id": campo["id"], "nome": campo["nome_campo"],
