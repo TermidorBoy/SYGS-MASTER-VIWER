@@ -251,10 +251,9 @@ elif st.session_state.pagina == "carica":
     uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed")
     if uploaded:
         try:
-            sn = 0
             contenuto = uploaded.read()
             uploaded.seek(0)
-            df = pd.read_excel(uploaded, sheet_name=sn, engine='openpyxl')
+            df = pd.read_excel(uploaded, sheet_name=0, engine='openpyxl')
             if df.empty:
                 msg("Il file è vuoto", "warning")
             else:
@@ -268,38 +267,6 @@ elif st.session_state.pagina == "carica":
                 st.rerun()
         except Exception as e:
             msg(f"Errore: {e}", "error")
-
-    st.markdown("##### Oppure inserisci il percorso locale")
-    percorso = st.text_input("Percorso del file .xlsx",
-                             placeholder="C:/documenti/miei_dati.xlsx",
-                             label_visibility="collapsed")
-    foglio = st.text_input("Nome foglio (opzionale, default: primo foglio)", placeholder="Sheet1")
-
-    if st.button("📥 Carica da percorso", use_container_width=True, type="primary"):
-        if percorso:
-            percorso = percorso.strip().strip('"').strip("'")
-        if not percorso:
-            msg("Inserisci il percorso del file", "warning")
-        elif not os.path.exists(percorso):
-            msg("File non trovato", "error")
-            st.caption(f"Percorso inserito: `{percorso}`")
-        else:
-            try:
-                sn = foglio if foglio else 0
-                df = pd.read_excel(percorso, sheet_name=sn, engine='openpyxl')
-                if df.empty:
-                    msg("Il foglio è vuoto", "warning")
-                else:
-                    fid = db.salva_file_excel(st.session_state.utente["id"], percorso,
-                                              str(foglio) if foglio else "Sheet1",
-                                              list(df.columns), len(df))
-                    db.init_data_table(fid, df)
-                    st.session_state.file_id = fid
-                    msg(f"✅ Importati {len(df)} record da '{os.path.basename(percorso)}'")
-                    st.session_state.pagina = "vedi_file"
-                    st.rerun()
-            except Exception as e:
-                msg(f"Errore: {e}", "error")
 
     st.divider()
     st.markdown("#### File caricati in precedenza")
