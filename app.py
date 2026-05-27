@@ -7,9 +7,9 @@ import openpyxl
 import database as db
 
 
-def leer_excel_con_formulas(source, sheet=0):
-    """Lee un Excel respetando las fórmulas como texto (=...) en lugar de valores cacheados.
-    source puede ser un file-like object (upload) o una ruta de archivo."""
+def leggi_excel_con_formule(source, sheet=0):
+    """Legge un Excel preservando le formule come testo (=...) invece dei valori calcolati.
+    source può essere un file-like object (upload) o un percorso di file."""
     import io
     if isinstance(source, (str, Path)):
         with open(source, 'rb') as f:
@@ -273,8 +273,8 @@ class _FP:
         return self.toks[self.pos] if self.pos < len(self.toks) else ('eof', None)
     def eat(self, t=None, v=None):
         p = self.peek()
-        if t and p[0] != t: raise _FormulaError(f"Esperado {t}, obtuvo {p[0]}")
-        if v and p[1] != v: raise _FormulaError(f"Esperado '{v}', obtuvo '{p[1]}'")
+        if t and p[0] != t: raise _FormulaError(f"Aspettato {t}, ottenuto {p[0]}")
+        if v and p[1] != v: raise _FormulaError(f"Aspettato '{v}', ottenuto '{p[1]}'")
         self.pos += 1; return p
     def parse(self):
         return self._expr()
@@ -536,7 +536,7 @@ elif st.session_state.pagina == "carica":
     if uploaded:
         try:
             contenuto = uploaded.read()
-            df = leer_excel_con_formulas(uploaded)
+            df = leggi_excel_con_formule(uploaded)
             nome = uploaded.name
             colonne = list(df.columns) if not df.empty else []
             if not colonne:
@@ -633,7 +633,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         titolo = "➕ Nuovo record" if is_new else f"✏️ Modifica record #{st.session_state.modifica_id}"
         st.markdown(f"#### {titolo}")
         if st.session_state.formula_mode:
-            st.caption("💡 Escribe `=A1+B1`, `=SUM(A1:A10)`, `=IF(A1>5,\"Si\",\"No\")` — las fórmulas se evalúan al visualizar")
+            st.caption("💡 Scrivi `=A1+B1`, `=SUM(A1:A10)`, `=IF(A1>5,\"Sì\",\"No\")` — le formule vengono valutate alla visualizzazione")
 
         campi_config = db.get_campi_config(fid)
         if not campi_config:
@@ -675,11 +675,6 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             elif tipo == "boolean":
                 vals[c] = st.checkbox(etichetta, value=bool(dv) if dv is not None else False, key=f"f_{c}")
             elif tipo == "single_select":
-                if cfg.get("permitir_nuevo"):
-                    agregar = st.checkbox(f"➕ Nueva opción", key=f"nuevo_{c}")
-                    if agregar:
-                        vals[c] = st.text_input(etichetta, value=str(dv) if dv is not None else "", key=f"f_{c}")
-                        continue
                 idx = opts.index(str(dv)) if dv is not None and str(dv) in opts else 0
                 vals[c] = st.selectbox(etichetta, opts if opts else [""], index=idx, key=f"f_{c}")
             elif tipo == "multi_select":
@@ -829,11 +824,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 buf, foglio_db = db.get_file_contenuto(fid)
                 if buf:
                     import io
-                    df_new = leer_excel_con_formulas(io.BytesIO(buf))
+                    df_new = leggi_excel_con_formule(io.BytesIO(buf))
                 else:
-                    df_new = leer_excel_con_formulas(info["percorso"])
+                    df_new = leggi_excel_con_formule(info["percorso"])
                 db.init_data_table(fid, df_new)
-                msg("✅ Dati ricaricati dal file Excel (fórmulas preservadas)")
+                msg("✅ Dati ricaricati dal file Excel (formule preservate)")
             except Exception as e:
                 msg(f"Errore: {e}", "error")
             st.rerun()
@@ -1078,7 +1073,7 @@ elif st.session_state.pagina == "configura_campi":
                     for m in pendenti:
                         try:
                             if m["tipo"] == "aggiorna":
-                                db.aggiorna_campo_config(m["config_id"], tipo_campo=m["tipo_campo"], obbligatorio=m["obbl"], opzioni=m.get("opzioni"), mostra_modulo=m["mostra"], valore_predefinito=m.get("default"), permitir_nuevo=m.get("permitir_nuevo"))
+                                db.aggiorna_campo_config(m["config_id"], tipo_campo=m["tipo_campo"], obbligatorio=m["obbl"], opzioni=m.get("opzioni"), mostra_modulo=m["mostra"], valore_predefinito=m.get("default"))
                             elif m["tipo"] == "rinomina":
                                 db.rinomina_colonna(fid, m["vecchio"], m["nuovo"])
                             elif m["tipo"] == "elimina":
@@ -1097,14 +1092,14 @@ elif st.session_state.pagina == "configura_campi":
         st.divider()
 
     # Header
-    hdr = st.columns([1.5, 1.3, 0.6, 0.6, 0.4, 1.5, 0.5, 0.4])
-    for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Nuevo", "Opzioni/Default", "", ""]):
+    hdr = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
+    for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Opzioni/Default", "", ""]):
         with h:
             st.markdown(f"**{label}**" if label else "")
 
     for campo in campi:
         with st.container():
-            cols = st.columns([1.5, 1.3, 0.6, 0.6, 0.4, 1.5, 0.5, 0.4])
+            cols = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
             with cols[0]:
                 nuovo_nome = st.text_input("Nome", value=campo["nome_campo"], key=f"nome_{campo['id']}", label_visibility="collapsed")
             with cols[1]:
@@ -1121,12 +1116,6 @@ elif st.session_state.pagina == "configura_campi":
                 mostra = st.checkbox("Mostra nel form", value=campo["mostra_modulo"], key=f"mostra_{campo['id']}", label_visibility="collapsed")
             with cols[4]:
                 is_select = tipo in ("single_select", "multi_select")
-                permitir = campo.get("permitir_nuevo", False)
-                if tipo == "single_select":
-                    pnuevo = st.checkbox("Nuevo", value=permitir, key=f"pnuevo_{campo['id']}", label_visibility="collapsed", help="Permitir al usuario escribir opciones nuevas")
-                else:
-                    pnuevo = False
-            with cols[5]:
                 if is_select:
                     current_opts = ", ".join(campo.get("opzioni", [])) if campo.get("opzioni") else ""
                     opts_str = st.text_input("Opzioni", value=current_opts,
@@ -1137,7 +1126,7 @@ elif st.session_state.pagina == "configura_campi":
                     opts_str = st.text_input("Default", value=dv,
                                              key=f"def_{campo['id']}", label_visibility="collapsed",
                                              placeholder="Valore default")
-            with cols[6]:
+            with cols[5]:
                 if st.button("📋", key=f"queue_{campo['id']}", help="Accoda modifica"):
                     new_opzioni = None
                     new_default = None
@@ -1157,7 +1146,6 @@ elif st.session_state.pagina == "configura_campi":
                         "tipo": "aggiorna", "config_id": campo["id"],
                         "tipo_campo": tipo, "obbl": obbl, "mostra": mostra,
                         "opzioni": new_opzioni, "default": new_default,
-                        "permitir_nuevo": pnuevo,
                         "campo_old": campo["nome_campo"],
                     })
                     if nuovo_nome.strip() and nuovo_nome.strip() != campo["nome_campo"]:
@@ -1166,7 +1154,7 @@ elif st.session_state.pagina == "configura_campi":
                             "vecchio": campo["nome_campo"], "nuovo": nuovo_nome.strip(),
                         })
                     st.toast(f"📋 '{campo['nome_campo']}' accodato ({len(st.session_state.modifiche_pendenti)})")
-            with cols[7]:
+            with cols[6]:
                 if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina"):
                     st.session_state.modifiche_pendenti.append({
                         "tipo": "elimina", "config_id": campo["id"], "nome": campo["nome_campo"],

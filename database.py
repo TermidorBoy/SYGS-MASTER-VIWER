@@ -76,10 +76,7 @@ def init_db():
         conn.execute("ALTER TABLE campi_config ADD COLUMN valore_predefinito TEXT")
     except Exception:
         pass
-    try:
-        conn.execute("ALTER TABLE campi_config ADD COLUMN permitir_nuevo INTEGER DEFAULT 0")
-    except Exception:
-        pass
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS permessi_file (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,7 +248,7 @@ def init_campi_config(file_id: int, colonne: list):
 def get_campi_config(file_id: int):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, nome_campo, tipo_campo, obbligatorio, opzioni, mostra_modulo, valore_predefinito, permitir_nuevo FROM campi_config WHERE file_id = ? ORDER BY ordine",
+        "SELECT id, nome_campo, tipo_campo, obbligatorio, opzioni, mostra_modulo, valore_predefinito FROM campi_config WHERE file_id = ? ORDER BY ordine",
         (file_id,),
     ).fetchall()
     conn.close()
@@ -263,12 +260,11 @@ def get_campi_config(file_id: int):
             d["opzioni"] = json.loads(d["opzioni"])
         d["obbligatorio"] = bool(d["obbligatorio"])
         d["mostra_modulo"] = bool(d["mostra_modulo"])
-        d["permitir_nuevo"] = bool(d["permitir_nuevo"])
         result.append(d)
     return result
 
 
-def aggiorna_campo_config(config_id: int, tipo_campo: str = None, obbligatorio: bool = None, opzioni: list = None, mostra_modulo: bool = None, valore_predefinito: str = None, permitir_nuevo: bool = None):
+def aggiorna_campo_config(config_id: int, tipo_campo: str = None, obbligatorio: bool = None, opzioni: list = None, mostra_modulo: bool = None, valore_predefinito: str = None):
     conn = get_conn()
     sets = []
     params = []
@@ -288,9 +284,6 @@ def aggiorna_campo_config(config_id: int, tipo_campo: str = None, obbligatorio: 
     if valore_predefinito is not None:
         sets.append("valore_predefinito = ?")
         params.append(valore_predefinito)
-    if permitir_nuevo is not None:
-        sets.append("permitir_nuevo = ?")
-        params.append(1 if permitir_nuevo else 0)
     if sets:
         conn.execute(f"UPDATE campi_config SET {', '.join(sets)} WHERE id = ?", params + [config_id])
         conn.commit()
