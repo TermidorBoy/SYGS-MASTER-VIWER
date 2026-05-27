@@ -363,7 +363,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
         campi_config = db.get_campi_config(fid)
         if not campi_config:
-            campi_config = [{"id": 0, "nome_campo": c, "tipo_campo": "text", "obbligatorio": False, "opzioni": None} for c in colonne_dati]
+            campi_config = [{"id": 0, "nome_campo": c, "tipo_campo": "text", "obbligatorio": False, "opzioni": None, "mostra_modulo": True, "valore_predefinito": None} for c in colonne_dati]
+
+        if is_new:
+            campi_config = [cfg for cfg in campi_config if cfg.get("mostra_modulo", True)]
 
         rec = None
         if not is_new:
@@ -377,7 +380,15 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             c = cfg["nome_campo"]
             if c not in colonne_dati:
                 continue
-            dv = rec[c] if rec is not None and pd.notna(rec[c]) else None
+            dv = rec[c] if rec is not None and pd.notna(rec[c]) else cfg.get("valore_predefinito")
+            if dv is not None:
+                if tipo == "number":
+                    try:
+                        dv = float(dv)
+                    except:
+                        dv = None
+                elif tipo == "boolean":
+                    dv = bool(dv)
             tipo = cfg["tipo_campo"]
             obbl = cfg["obbligatorio"]
             etichetta = f"{c} *" if obbl else c
@@ -645,7 +656,7 @@ elif st.session_state.pagina == "configura_campi":
 
     for campo in campi:
         with st.container():
-            cols = st.columns([2, 1.5, 0.8, 1.5, 0.5, 0.4])
+            cols = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
             with cols[0]:
                 st.markdown(f"**{campo['nome_campo']}**")
             with cols[1]:
@@ -660,17 +671,23 @@ elif st.session_state.pagina == "configura_campi":
                 obbl = st.checkbox("Obbligatorio", value=campo["obbligatorio"], key=f"obbl_{campo['id']}",
                                    label_visibility="collapsed")
             with cols[3]:
+                mostra = st.checkbox("Mostra", value=campo["mostra_modulo"], key=f"mostra_{campo['id']}",
+                                     label_visibility="collapsed", help="Mostra nel modulo di inserimento")
+            with cols[4]:
                 if tipo in ("single_select", "multi_select"):
                     current_opts = ", ".join(campo.get("opzioni", [])) if campo.get("opzioni") else ""
-                    opts_str = st.text_input("Opzioni (separate da virgola)", value=current_opts,
+                    opts_str = st.text_input("Opzioni", value=current_opts,
                                              key=f"opts_{campo['id']}", label_visibility="collapsed",
-                                             placeholder="Opzione1, Opzione2, ...")
+                                             placeholder="Opz1, Opz2, ...")
                 else:
-                    opts_str = None
-                    st.markdown("—")
-            with cols[4]:
+                    dv = campo.get("valore_predefinito") or ""
+                    opts_str = st.text_input("Default", value=dv,
+                                             key=f"def_{campo['id']}", label_visibility="collapsed",
+                                             placeholder="Valore default")
+            with cols[5]:
                 if st.button("💾", key=f"save_cfg_{campo['id']}", help="Salva"):
                     new_opzioni = None
+                    new_default = None
                     if tipo in ("single_select", "multi_select"):
                         if opts_str and opts_str.strip():
                             new_opzioni = [o.strip() for o in opts_str.split(",")]
@@ -681,10 +698,13 @@ elif st.session_state.pagina == "configura_campi":
                                 new_opzioni = sorted([str(v) for v in vals if v != "" and str(v).strip() != ""])
                                 if not new_opzioni:
                                     new_opzioni = [" "]
-                    db.aggiorna_campo_config(campo["id"], tipo_campo=tipo, obbligatorio=obbl, opzioni=new_opzioni)
+                    else:
+                        new_default = opts_str.strip() if opts_str and opts_str.strip() else None
+                    db.aggiorna_campo_config(campo["id"], tipo_campo=tipo, obbligatorio=obbl, opzioni=new_opzioni,
+                                             mostra_modulo=mostra, valore_predefinito=new_default)
                     msg(f"Campo '{campo['nome_campo']}' aggiornato")
                     st.rerun()
-            with cols[5]:
+            with cols[6]:
                 if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina colonna"):
                     db.elimina_colonna(fid, campo["id"], campo["nome_campo"])
                     msg(f"Colonna '{campo['nome_campo']}' eliminata")
