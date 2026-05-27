@@ -578,9 +578,23 @@ elif st.session_state.pagina == "configura_campi":
         st.rerun()
 
     st.markdown(f'<div class="page-title">⚙️ Configura campi</div>', unsafe_allow_html=True)
-    if st.button("🔙 Torna al file", use_container_width=False):
-        st.session_state.pagina = "vedi_file"
-        st.rerun()
+    col_back, col_add = st.columns([1, 2])
+    with col_back:
+        if st.button("🔙 Torna al file", use_container_width=False):
+            st.session_state.pagina = "vedi_file"
+            st.rerun()
+    with col_add:
+        with st.expander("➕ Aggiungi colonna"):
+            with st.form("nuova_colonna", border=False):
+                c_nome = st.text_input("Nome colonna", placeholder="Nuovo campo")
+                c_tipo = st.selectbox("Tipo", ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"])
+                if st.form_submit_button("Crea colonna", use_container_width=True, type="primary"):
+                    if c_nome.strip():
+                        db.aggiungi_colonna(fid, c_nome.strip(), c_tipo)
+                        msg(f"Colonna '{c_nome}' creata")
+                        st.rerun()
+                    else:
+                        msg("Inserisci un nome", "warning")
     st.divider()
 
     campi = db.get_campi_config(fid)
@@ -596,7 +610,7 @@ elif st.session_state.pagina == "configura_campi":
 
     for campo in campi:
         with st.container():
-            cols = st.columns([2, 1.5, 0.8, 1.5, 0.5])
+            cols = st.columns([2, 1.5, 0.8, 1.5, 0.5, 0.4])
             with cols[0]:
                 st.markdown(f"**{campo['nome_campo']}**")
             with cols[1]:
@@ -634,6 +648,11 @@ elif st.session_state.pagina == "configura_campi":
                                     new_opzioni = [" "]
                     db.aggiorna_campo_config(campo["id"], tipo_campo=tipo, obbligatorio=obbl, opzioni=new_opzioni)
                     msg(f"Campo '{campo['nome_campo']}' aggiornato")
+                    st.rerun()
+            with cols[5]:
+                if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina colonna"):
+                    db.elimina_colonna(fid, campo["id"], campo["nome_campo"])
+                    msg(f"Colonna '{campo['nome_campo']}' eliminata")
                     st.rerun()
             st.divider()
 

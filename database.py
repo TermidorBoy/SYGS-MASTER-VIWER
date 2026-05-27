@@ -254,6 +254,33 @@ def aggiorna_campo_config(config_id: int, tipo_campo: str = None, obbligatorio: 
     conn.close()
 
 
+def aggiungi_colonna(file_id: int, nome_colonna: str, tipo_campo: str = "text"):
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    safe = nome_colonna.strip().replace(" ", "_").replace("'", "").replace('"', "").replace(".", "_")
+    sql_type = "REAL" if tipo_campo == "number" else "TEXT"
+    conn.execute(f"ALTER TABLE [{table}] ADD COLUMN \"{safe}\" {sql_type}")
+    max_ord = conn.execute("SELECT COALESCE(MAX(ordine), -1) as mx FROM campi_config WHERE file_id = ?", (file_id,)).fetchone()["mx"]
+    conn.execute(
+        "INSERT INTO campi_config (file_id, nome_campo, tipo_campo, obbligatorio, ordine) VALUES (?, ?, ?, 0, ?)",
+        (file_id, nome_colonna, tipo_campo, max_ord + 1),
+    )
+    conn.commit()
+    conn.close()
+
+
+def elimina_colonna(file_id: int, config_id: int, nome_colonna: str):
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    conn.execute("DELETE FROM campi_config WHERE id = ?", (config_id,))
+    try:
+        conn.execute(f"ALTER TABLE [{table}] DROP COLUMN \"{nome_colonna}\"")
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+
+
 # ── Dati (CRUD) ──
 
 def init_data_table(file_id: int, df: pd.DataFrame):
