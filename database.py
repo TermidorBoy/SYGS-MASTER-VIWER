@@ -68,6 +68,18 @@ def init_db():
         conn.execute("ALTER TABLE campi_config ADD COLUMN opzioni TEXT")
     except Exception:
         pass
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS permessi_file (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            utente_id INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            colonne_visibili TEXT,
+            filtro_righe TEXT,
+            UNIQUE(utente_id, file_id),
+            FOREIGN KEY (utente_id) REFERENCES utenti(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
+        );
+    """)
     cur = conn.execute("SELECT id FROM utenti WHERE email = ?", ("s.galvis@setinstudio.com",))
     if not cur.fetchone():
         conn.execute(
@@ -177,7 +189,15 @@ def file_utente(utente_id: int):
         "SELECT id, percorso, nome_file, foglio, colonne, righe, caricato_il FROM file_excel WHERE utente_id = ? ORDER BY caricato_il DESC",
         (utente_id,),
     ).fetchall()
+    user_rows = conn.execute(
+        "SELECT fe.id, fe.percorso, fe.nome_file, fe.foglio, fe.colonne, fe.righe, fe.caricato_il "
+        "FROM permessi_file pf JOIN file_excel fe ON pf.file_id = fe.id WHERE pf.utente_id = ?", (utente_id,)
+    ).fetchall()
     conn.close()
+    seen = set(r["id"] for r in rows)
+    for r in user_rows:
+        if r["id"] not in seen:
+            rows.append(r)
     return [dict(r) for r in rows]
 
 
@@ -277,6 +297,65 @@ def elimina_colonna(file_id: int, config_id: int, nome_colonna: str):
         conn.execute(f"ALTER TABLE [{table}] DROP COLUMN \"{nome_colonna}\"")
     except Exception:
         pass
+    conn.commit()
+    conn.close()
+
+
+# ── Permessi ──
+
+def get_all_files():
+    conn = get_conn()
+    rows = conn.execute("SELECT id, nome_file, utente_id FROM file_excel ORDER BY nome_file").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_user_file_ids(utente_id: int, ruolo: str):
+    if ruolo == "admin":
+        conn = get_conn()
+        rows = conn.execute("SELECT id FROM file_excel").fetchall()
+        conn.close()
+        return [r["id"] for r in rows]
+    conn = get_conn()
+    rows = conn.execute("SELECT file_id FROM permessi_file WHERE utente_id = ?", (utente_id,)).fetchall()
+    conn.close()
+    return [r["file_id"] for r in rows]
+
+
+def get_permesso_file(utente_id: int, file_id: int):
+    conn = get_conn()
+    row = conn.execute("SELECT colonne_visibili, filtro_righe FROM permessi_file WHERE utente_id = ? AND file_id = ?",
+                       (utente_id, file_id)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    import json
+    d = dict(row)
+    if d["colonne_visibili"]:
+        d["colonne_visibili"] = json.loads(d["colonne_visibili"])
+    if d["filtro_righe"]:
+        d["filtro_righe"] = json.loads(d["filtro_righe"])
+    return d
+
+
+def set_permesso_file(utente_id: int, file_id: int, colonne_visibili: list = None, filtro_righe: dict = None):
+    conn = get_conn()
+    import json
+    cv = json.dumps(colonne_visibili) if colonne_visibili else None
+    fr = json.dumps(filtro_righe) if filtro_righe else None
+    conn.execute("""
+        INSERT INTO permessi_file (utente_id, file_id, colonne_visibili, filtro_righe)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(utente_id, file_id)
+        DO UPDATE SET colonne_visibili=excluded.colonne_visibili, filtro_righe=excluded.filtro_righe
+    """, (utente_id, file_id, cv, fr))
+    conn.commit()
+    conn.close()
+
+
+def elimina_permesso_file(utente_id: int, file_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM permessi_file WHERE utente_id = ? AND file_id = ?", (utente_id, file_id))
     conn.commit()
     conn.close()
 

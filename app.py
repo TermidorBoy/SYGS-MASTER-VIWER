@@ -132,6 +132,22 @@ with st.sidebar:
                         st.rerun()
 
         st.divider()
+        with st.expander("🔑 Cambia password"):
+            with st.form("cambia_mia_pw", border=False):
+                old = st.text_input("Password attuale", type="password", key="old_pw")
+                new1 = st.text_input("Nuova password", type="password", key="new_pw1")
+                if st.form_submit_button("Aggiorna", use_container_width=True):
+                    if old and new1:
+                        ut = db.login(u["email"], old)
+                        if ut:
+                            db.cambia_password(u["id"], new1)
+                            msg("Password cambiata")
+                            st.rerun()
+                        else:
+                            msg("Password attuale errata", "error")
+                    else:
+                        msg("Compila tutti i campi", "warning")
+        st.divider()
         if st.button("🚪  Esci", use_container_width=True):
             st.session_state.utente = None
             st.session_state.pagina = "login"
@@ -332,6 +348,13 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
     colonne_dati = [c for c in df.columns if c not in ("id", "creato_da", "creato_il")]
 
+    # Apply permissions
+    u = st.session_state.utente
+    if u["ruolo"] != "admin":
+        perm = db.get_permesso_file(u["id"], fid)
+        if perm:
+            if perm.get("colonne_visibili"):
+                colonne_dati = [c for c in colonne_dati if c in perm["colonne_visibili"]]
     # ── MODIFICA / AGGIUNGI ──
     if st.session_state.pagina == "modifica_record" or st.session_state.pagina == "aggiungi_record":
         is_new = st.session_state.pagina == "aggiungi_record"
@@ -469,9 +492,14 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.rerun()
     with tb[2]:
         if st.session_state.filtro_col:
-            fv = st.text_input("Valore", value=st.session_state.filtro_val,
-                               placeholder="Filtra...", label_visibility="collapsed")
-            if fv != st.session_state.filtro_val:
+            c = st.session_state.filtro_col
+            unique_vals = sorted(df[c].dropna().unique())
+            prev = st.session_state.get("filtro_val", "")
+            fv = st.selectbox("Valore", ["(Tutti)"] + [str(v) for v in unique_vals],
+                              index=0 if not prev or prev == "(Tutti)"
+                              else ([str(v) for v in unique_vals].index(prev) + 1) if prev in [str(v) for v in unique_vals] else 0,
+                              label_visibility="collapsed")
+            if fv != st.session_state.get("filtro_val", ""):
                 st.session_state.filtro_val = fv
                 st.rerun()
     with tb[3]:
@@ -514,11 +542,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         mask = view_df[colonne_dati].astype(str).apply(lambda x: x.str.lower().str.contains(q, na=False)).any(axis=1)
         view_df = view_df[mask]
 
-    if st.session_state.filtro_col and st.session_state.filtro_val:
+    if st.session_state.filtro_col and st.session_state.filtro_val and st.session_state.filtro_val != "(Tutti)":
         c = st.session_state.filtro_col
         v = st.session_state.filtro_val
         if c in view_df.columns:
-            view_df = view_df[view_df[c].astype(str).str.contains(v, case=False, na=False)]
+            view_df = view_df[view_df[c].astype(str) == v]
 
     total = len(view_df)
     st.caption(f"{total} record{' (filtrati da ' + str(len(df)) + ' totali)' if total != len(df) else ''}")
@@ -670,7 +698,7 @@ elif st.session_state.pagina == "utenti":
         cambia_pagina("dashboard")
 
     st.markdown('<div class="page-title">👥 Gestione Utenti</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Crea e gestisci gli account utente</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Crea, modifica password e assegna permessi file</div>', unsafe_allow_html=True)
 
     with st.expander("➕ Crea nuovo utente", expanded=False):
         with st.form("nuovo_utente"):
@@ -692,24 +720,64 @@ elif st.session_state.pagina == "utenti":
                 else:
                     msg("Compila tutti i campi", "warning")
 
+    st.markdown("#### Cambia password")
+    with st.form("cambia_pw"):
+        sel_user = st.selectbox("Utente", [f"{u['nome']} ({u['email']})" for u in db.lista_utenti()], key="pw_user")
+        nuova_pw = st.text_input("Nuova password", type="password")
+        if st.form_submit_button("Aggiorna password", use_container_width=True, type="primary"):
+            if nuova_pw:
+                uid = [u for u in db.lista_utenti() if f"{u['nome']} ({u['email']})" == sel_user][0]["id"]
+                db.cambia_password(uid, nuova_pw)
+                msg("Password aggiornata")
+                st.rerun()
+            else:
+                msg("Inserisci la nuova password", "warning")
+
     st.divider()
     st.markdown("#### Elenco utenti")
     utenti = db.lista_utenti()
     for ut in utenti:
-        is_online = ut["ultimo_accesso"] and (datetime.now() - datetime.strptime(ut["ultimo_accesso"][:19], "%Y-%m-%d %H:%M:%S")).seconds < 120
-        cols = st.columns([2, 2, 1, 0.5, 0.5])
-        with cols[0]:
-            st.markdown(f"**{ut['nome']}**")
-        with cols[1]:
-            st.markdown(ut["email"])
-        with cols[2]:
-            badge = "🟢 Online" if is_online else "⚪ Offline"
-            st.markdown(badge)
-        with cols[3]:
-            st.markdown(f"`{ut['ruolo']}`")
-        with cols[4]:
-            if ut["email"] != "s.galvis@setinstudio.com":
-                if st.button("🗑️", key=f"del_user_{ut['id']}", help="Elimina"):
-                    db.elimina_utente(ut["id"])
-                    msg(f"Utente {ut['nome']} eliminato")
-                    st.rerun()
+        with st.expander(f"**{ut['nome']}** — {ut['email']} (`{ut['ruolo']}`)", expanded=False):
+            if ut["email"] == "s.galvis@setinstudio.com":
+                st.caption("Admin principale — non modificabile")
+                continue
+            col_pw, col_file = st.columns([1, 2])
+            with col_pw:
+                st.markdown("**Password**")
+                with st.form(key=f"pw_{ut['id']}", border=False):
+                    npw = st.text_input("Nuova password", type="password", key=f"npw_{ut['id']}", label_visibility="collapsed")
+                    if st.form_submit_button("Salva password", use_container_width=True):
+                        if npw:
+                            db.cambia_password(ut["id"], npw)
+                            msg("Password cambiata")
+                            st.rerun()
+            with col_file:
+                st.markdown("**Permessi file**")
+                all_files = db.get_all_files()
+                for f in all_files:
+                    perm = db.get_permesso_file(ut["id"], f["id"])
+                    has_perm = perm is not None
+                    kb = st.checkbox(f["nome_file"], value=has_perm, key=f"fp_{ut['id']}_{f['id']}")
+                    if kb:
+                        campi = [c["nome_campo"] for c in db.get_campi_config(f["id"])] or []
+                        col_vis = st.multiselect("Colonne visibili", campi,
+                                                  default=perm["colonne_visibili"] if perm and perm.get("colonne_visibili") else campi,
+                                                  key=f"fp_col_{ut['id']}_{f['id']}", label_visibility="collapsed")
+                        if col_vis:
+                            non_vis = [c for c in campi if c not in col_vis]
+                            if non_vis:
+                                st.caption(f"Nascoste: {', '.join(non_vis)}")
+                        with st.form(key=f"fp_save_{ut['id']}_{f['id']}", border=False):
+                            if st.form_submit_button("Salva permessi", use_container_width=True):
+                                db.set_permesso_file(ut["id"], f["id"], col_vis if col_vis else None)
+                                msg(f"Permessi aggiornati per {ut['nome']} su {f['nome_file']}")
+                                st.rerun()
+                    elif has_perm:
+                        db.elimina_permesso_file(ut["id"], f["id"])
+                        msg(f"Permesso rimosso per {ut['nome']} su {f['nome_file']}")
+                        st.rerun()
+            st.divider()
+            if st.button(f"🗑️ Elimina utente {ut['nome']}", key=f"del_user_{ut['id']}", use_container_width=True):
+                db.elimina_utente(ut["id"])
+                msg(f"Utente {ut['nome']} eliminato")
+                st.rerun()
