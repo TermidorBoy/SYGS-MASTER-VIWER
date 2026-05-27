@@ -623,14 +623,32 @@ elif st.session_state.pagina == "configura_campi":
         st.session_state.pagina = "dashboard"
         st.rerun()
 
-    if "modifiche_pendenti" not in st.session_state:
-        st.session_state.modifiche_pendenti = []
+    def salva_campo(cid, campo_nome, nuovo_nome, tipo, obbl, mostra, opts_str, is_select):
+        if is_select:
+            new_opzioni = None
+            if opts_str and opts_str.strip():
+                new_opzioni = [o.strip() for o in opts_str.split(",")]
+            else:
+                df_cfg = db.carica_dati(fid)
+                if df_cfg is not None and campo_nome in df_cfg.columns:
+                    vals = df_cfg[campo_nome].dropna().unique()
+                    new_opzioni = sorted([str(v) for v in vals if v != "" and str(v).strip() != ""])
+                    if not new_opzioni:
+                        new_opzioni = [" "]
+            new_default = None
+        else:
+            new_opzioni = None
+            new_default = opts_str.strip() if opts_str and opts_str.strip() else None
+        db.aggiorna_campo_config(cid, tipo_campo=tipo, obbligatorio=obbl,
+                                  opzioni=new_opzioni, mostra_modulo=mostra,
+                                  valore_predefinito=new_default)
+        if nuovo_nome.strip() and nuovo_nome.strip() != campo_nome:
+            db.rinomina_colonna(fid, campo_nome, nuovo_nome.strip())
 
     st.markdown(f'<div class="page-title">⚙️ Configura campi</div>', unsafe_allow_html=True)
     col_back, col_add = st.columns([1, 2])
     with col_back:
         if st.button("🔙 Torna al file", use_container_width=False):
-            st.session_state.modifiche_pendenti = []
             st.session_state.pagina = "vedi_file"
             st.rerun()
     with col_add:
@@ -638,10 +656,10 @@ elif st.session_state.pagina == "configura_campi":
             with st.form("nuova_colonna", border=False):
                 c_nome = st.text_input("Nome colonna", placeholder="Nuovo campo")
                 c_tipo = st.selectbox("Tipo", ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"])
-                if st.form_submit_button("➕ Accoda creazione", use_container_width=True):
+                if st.form_submit_button("➕ Crea colonna", use_container_width=True, type="primary"):
                     if c_nome.strip():
-                        st.session_state.modifiche_pendenti.append({"tipo": "aggiungi", "nome": c_nome.strip(), "tipo_campo": c_tipo})
-                        msg(f"✅ '{c_nome}' in coda — premi Applica per eseguire")
+                        db.aggiungi_colonna(fid, c_nome.strip(), c_tipo)
+                        msg(f"Colonna '{c_nome}' creata")
                         st.rerun()
                     else:
                         msg("Inserisci un nome", "warning")
@@ -658,55 +676,12 @@ elif st.session_state.pagina == "configura_campi":
         st.session_state.pagina = "vedi_file"
         st.rerun()
 
-    # ── PENDING CHANGES PANEL ──
-    if st.session_state.modifiche_pendenti:
-        pendenti = st.session_state.modifiche_pendenti
-        with st.container():
-            st.markdown(f"#### 📋 Modifiche in coda ({len(pendenti)})")
-            for i, m in enumerate(pendenti):
-                if m["tipo"] == "aggiorna":
-                    st.markdown(f"- {i+1}. ✏️ **{m['campo_old']}** → tipo: `{m['tipo_campo']}`, obbl: {'si' if m['obbl'] else 'no'}, form: {'si' if m['mostra'] else 'no'}")
-                elif m["tipo"] == "rinomina":
-                    st.markdown(f"- {i+1}. 🔤 **{m['vecchio']}** → **{m['nuovo']}**")
-                elif m["tipo"] == "elimina":
-                    st.markdown(f"- {i+1}. 🗑️ **{m['nome']}** (elimina colonna)")
-                elif m["tipo"] == "aggiungi":
-                    st.markdown(f"- {i+1}. ➕ **{m['nome']}** (`{m['tipo_campo']}`)")
-            ca1, ca2 = st.columns([1, 1])
-            with ca1:
-                if st.button("✅ Applica tutte", use_container_width=True, type="primary"):
-                    errori = 0
-                    for m in pendenti:
-                        try:
-                            if m["tipo"] == "aggiorna":
-                                db.aggiorna_campo_config(m["config_id"], tipo_campo=m["tipo_campo"], obbligatorio=m["obbl"], opzioni=m.get("opzioni"), mostra_modulo=m["mostra"], valore_predefinito=m.get("default"))
-                            elif m["tipo"] == "rinomina":
-                                db.rinomina_colonna(fid, m["vecchio"], m["nuovo"])
-                            elif m["tipo"] == "elimina":
-                                db.elimina_colonna(fid, m["config_id"], m["nome"])
-                            elif m["tipo"] == "aggiungi":
-                                db.aggiungi_colonna(fid, m["nome"], m["tipo_campo"])
-                        except Exception as e:
-                            errori += 1
-                    st.session_state.modifiche_pendenti = []
-                    if errori:
-                        msg(f"⚠️ {errori} errore(i) — le altre modifiche sono state applicate", "warning")
-                    else:
-                        msg("✅ Tutte le modifiche applicate")
-                    st.rerun()
-            with ca2:
-                if st.button("🗑️ Annulla tutto", use_container_width=True):
-                    st.session_state.modifiche_pendenti = []
-                    st.rerun()
-        st.divider()
-
     # Header
     hdr = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
     for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Opzioni/Default", "", ""]):
         with h:
             st.markdown(f"**{label}**" if label else "")
 
-    campo_names = {c["nome_campo"]: c for c in campi}
     for campo in campi:
         with st.container():
             cols = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
@@ -725,7 +700,8 @@ elif st.session_state.pagina == "configura_campi":
             with cols[3]:
                 mostra = st.checkbox("Mostra nel form", value=campo["mostra_modulo"], key=f"mostra_{campo['id']}", label_visibility="collapsed")
             with cols[4]:
-                if tipo in ("single_select", "multi_select"):
+                is_select = tipo in ("single_select", "multi_select")
+                if is_select:
                     current_opts = ", ".join(campo.get("opzioni", [])) if campo.get("opzioni") else ""
                     opts_str = st.text_input("Opzioni", value=current_opts,
                                              key=f"opts_{campo['id']}", label_visibility="collapsed",
@@ -736,40 +712,14 @@ elif st.session_state.pagina == "configura_campi":
                                              key=f"def_{campo['id']}", label_visibility="collapsed",
                                              placeholder="Valore default")
             with cols[5]:
-                if st.button("📋", key=f"queue_cfg_{campo['id']}", help="Accoda modifica"):
-                    new_opzioni = None
-                    new_default = None
-                    if tipo in ("single_select", "multi_select"):
-                        if opts_str and opts_str.strip():
-                            new_opzioni = [o.strip() for o in opts_str.split(",")]
-                        else:
-                            df_cfg = db.carica_dati(fid)
-                            if df_cfg is not None and campo['nome_campo'] in df_cfg.columns:
-                                vals = df_cfg[campo['nome_campo']].dropna().unique()
-                                new_opzioni = sorted([str(v) for v in vals if v != "" and str(v).strip() != ""])
-                                if not new_opzioni:
-                                    new_opzioni = [" "]
-                    else:
-                        new_default = opts_str.strip() if opts_str and opts_str.strip() else None
-                    st.session_state.modifiche_pendenti.append({
-                        "tipo": "aggiorna", "config_id": campo["id"],
-                        "tipo_campo": tipo, "obbl": obbl, "mostra": mostra,
-                        "opzioni": new_opzioni, "default": new_default,
-                        "campo_old": campo["nome_campo"],
-                    })
-                    if nuovo_nome.strip() and nuovo_nome.strip() != campo["nome_campo"]:
-                        st.session_state.modifiche_pendenti.append({
-                            "tipo": "rinomina", "config_id": campo["id"],
-                            "vecchio": campo["nome_campo"], "nuovo": nuovo_nome.strip(),
-                        })
-                    msg("📋 Modifica accodata")
+                if st.button("💾", key=f"save_cfg_{campo['id']}", help="Salva"):
+                    salva_campo(campo["id"], campo["nome_campo"], nuovo_nome, tipo, obbl, mostra, opts_str, is_select)
+                    msg(f"✅ '{campo['nome_campo']}' salvato")
                     st.rerun()
             with cols[6]:
-                if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina colonna"):
-                    st.session_state.modifiche_pendenti.append({
-                        "tipo": "elimina", "config_id": campo["id"], "nome": campo["nome_campo"],
-                    })
-                    msg("🗑️ Eliminazione in coda")
+                if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina"):
+                    db.elimina_colonna(fid, campo["id"], campo["nome_campo"])
+                    msg(f"Colonna eliminata")
                     st.rerun()
             st.divider()
 
