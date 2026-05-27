@@ -47,7 +47,8 @@ st.markdown("""
     div.stButton > button[data-kind="primary"] { background: #1E3A5F; color: white; }
     div[data-testid="stDataFrame"] { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
     div[data-testid="stVerticalBlockBorderWrapper"] > div { gap: 4px; }
-    .kanban-card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; margin: 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .kanban-card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+
 
     .user-avatar {
         width: 36px; height: 36px; border-radius: 50%; display: inline-flex;
@@ -599,43 +600,68 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "configura_stati"
             st.rerun()
 
-        # Use Streamlit columns — cap at 6 for readability
+        # Kanban columns — reorderable via ◀ ▶ buttons
         n_stati = len(stati)
-        cols = st.columns(min(n_stati, 6))
-        for i, stato in enumerate(stati):
-            ci = i % 6
-            with cols[ci]:
-                nome = stato["nome"]
-                colore = stato.get("colore", "#6B7280")
-                records_in_col = view_df[view_df[col_stato].astype(str) == nome]
-                st.markdown(f'<div style="background:{colore};color:white;padding:6px 10px;border-radius:6px;text-align:center;font-weight:600;font-size:0.85rem;">{nome} ({len(records_in_col)})</div>', unsafe_allow_html=True)
-                for _, rec in records_in_col.iterrows():
-                    rid = int(rec["id"])
-                    titolo = str(rec.get(col_titolo, "")) if col_titolo and col_titolo in rec and pd.notna(rec.get(col_titolo)) else f"#{rid}"
-                    with st.container():
-                        st.markdown(f'<div class="kanban-card"><span style="font-weight:600;font-size:0.85rem;color:#1E3A5F;">{titolo}</span><br><span style="color:#9CA3AF;font-size:0.7rem;">#{rid}</span></div>', unsafe_allow_html=True)
-                        other_stati = [s["nome"] for s in stati if s["nome"] != nome]
-                        if other_stati:
-                            key = f"mv_{rid}_{nome.replace(' ','_')}"
-                            new_stato = st.selectbox("", ["—"] + other_stati, key=key, label_visibility="collapsed")
-                            if new_stato and new_stato != "—":
-                                trans = db.get_transizioni(fid)
-                                for t in trans:
-                                    if t["stato_da"] == nome and t["stato_a"] == new_stato:
-                                        action = t["azione_tipo"]
-                                        col = t["colonna_destinazione"]
-                                        val = t["valore"]
-                                        if action == "set_data" and col:
-                                            from datetime import date
-                                            db.aggiorna_record(fid, rid, {col: str(date.today())})
-                                        elif action == "set_timestamp" and col:
-                                            from datetime import datetime
-                                            db.aggiorna_record(fid, rid, {col: str(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))})
-                                        elif action == "set_valore" and col and val:
-                                            db.aggiorna_record(fid, rid, {col: val})
-                                db.aggiorna_record(fid, rid, {col_stato: new_stato})
-                                st.toast(f"📦 #{rid} → {new_stato}")
+        MAX_COLS = 6
+        for batch_start in range(0, n_stati, MAX_COLS):
+            batch = stati[batch_start:batch_start + MAX_COLS]
+            cols = st.columns(len(batch))
+            for i, stato in enumerate(batch):
+                global_idx = batch_start + i
+                with cols[i]:
+                    nome = stato["nome"]
+                    colore = stato.get("colore", "#6B7280")
+                    records_in_col = view_df[view_df[col_stato].astype(str) == nome]
+
+                    # Header with reorder buttons (nested columns)
+                    hc = st.columns([0.1, 1, 0.1])
+                    with hc[0]:
+                        if global_idx > 0:
+                            if st.button("◀", key=f"kl_{global_idx}", help=f"Sposta {nome} a sinistra"):
+                                stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280")} for s in stati]
+                                prev = stati_list[global_idx - 1]
+                                stati_list[global_idx - 1], stati_list[global_idx] = stati_list[global_idx], prev
+                                db.save_stati_list(fid, stati_list)
                                 st.rerun()
+                    with hc[1]:
+                        st.markdown(f'<div style="background:{colore};color:white;padding:6px;border-radius:6px;text-align:center;font-weight:600;font-size:0.8rem;">{nome} <span style="font-weight:400;">({len(records_in_col)})</span></div>', unsafe_allow_html=True)
+                    with hc[2]:
+                        if global_idx < n_stati - 1:
+                            if st.button("▶", key=f"kr_{global_idx}", help=f"Sposta {nome} a destra"):
+                                stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280")} for s in stati]
+                                nxt = stati_list[global_idx + 1]
+                                stati_list[global_idx], stati_list[global_idx + 1] = nxt, stati_list[global_idx]
+                                db.save_stati_list(fid, stati_list)
+                                st.rerun()
+
+                    # Cards
+                    for _, rec in records_in_col.iterrows():
+                        rid = int(rec["id"])
+                        titolo = str(rec.get(col_titolo, "")) if col_titolo and col_titolo in rec and pd.notna(rec.get(col_titolo)) else f"#{rid}"
+                        with st.container():
+                            st.markdown(f'<div class="kanban-card"><span style="font-weight:600;font-size:0.85rem;color:#1E3A5F;">{titolo}</span><br><span style="color:#9CA3AF;font-size:0.7rem;">#{rid}</span></div>', unsafe_allow_html=True)
+                            other_stati = [s["nome"] for s in stati if s["nome"] != nome]
+                            if other_stati:
+                                key = f"mv_{rid}_{nome.replace(' ','_')}"
+                                new_stato = st.selectbox("", ["—"] + other_stati, key=key, label_visibility="collapsed")
+                                if new_stato and new_stato != "—":
+                                    trans = db.get_transizioni(fid)
+                                    for t in trans:
+                                        if t["stato_da"] == nome and t["stato_a"] == new_stato:
+                                            action = t["azione_tipo"]
+                                            col = t["colonna_destinazione"]
+                                            val = t["valore"]
+                                            if action == "set_data" and col:
+                                                from datetime import date
+                                                db.aggiorna_record(fid, rid, {col: str(date.today())})
+                                            elif action == "set_timestamp" and col:
+                                                from datetime import datetime
+                                                db.aggiorna_record(fid, rid, {col: str(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))})
+                                            elif action == "set_valore" and col and val:
+                                                db.aggiorna_record(fid, rid, {col: val})
+                                    db.aggiorna_record(fid, rid, {col_stato: new_stato})
+                                    st.toast(f"📦 #{rid} → {new_stato}")
+                                    st.rerun()
         st.stop()
 
     # ── TABLE ──
