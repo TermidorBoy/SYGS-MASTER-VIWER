@@ -588,12 +588,15 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.rerun()
             st.stop()
 
-        stati = db.get_stati_config(fid)
+        stati = db.get_stati_config(fid, solo_kanban=True)
+        if not stati:
+            # fallback: all states
+            stati = db.get_stati_config(fid)
         if not stati:
             vals = sorted(df[col_stato].dropna().unique())
-            stati = [{"nome": str(v), "ordine": i, "colore": "#6B7280"} for i, v in enumerate(vals)]
+            stati = [{"nome": str(v), "ordine": i, "colore": "#6B7280", "mostra_kanban": True} for i, v in enumerate(vals)]
             if not stati:
-                stati = [{"nome": "Nessuno stato", "ordine": 0, "colore": "#6B7280"}]
+                stati = [{"nome": "Nessuno stato", "ordine": 0, "colore": "#6B7280", "mostra_kanban": True}]
 
         st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">📋 Kanban — {col_stato}</div>', unsafe_allow_html=True)
         if st.button("⚙️ Configura stati"):
@@ -618,7 +621,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                     with hc[0]:
                         if global_idx > 0:
                             if st.button("◀", key=f"kl_{global_idx}", help=f"Sposta {nome} a sinistra"):
-                                stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280")} for s in stati]
+                                stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280"), "mostra_kanban": s.get("mostra_kanban", True)} for s in stati]
                                 prev = stati_list[global_idx - 1]
                                 stati_list[global_idx - 1], stati_list[global_idx] = stati_list[global_idx], prev
                                 db.save_stati_list(fid, stati_list)
@@ -628,7 +631,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                     with hc[2]:
                         if global_idx < n_stati - 1:
                             if st.button("▶", key=f"kr_{global_idx}", help=f"Sposta {nome} a destra"):
-                                stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280")} for s in stati]
+                                stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280"), "mostra_kanban": s.get("mostra_kanban", True)} for s in stati]
                                 nxt = stati_list[global_idx + 1]
                                 stati_list[global_idx], stati_list[global_idx + 1] = nxt, stati_list[global_idx]
                                 db.save_stati_list(fid, stati_list)
@@ -920,7 +923,7 @@ elif st.session_state.pagina == "configura_stati":
         # auto-populate from data
         if df_cfg is not None and col_stato in df_cfg.columns:
             vals = sorted(df_cfg[col_stato].dropna().unique())
-            stati = [{"id": 0, "nome": str(v), "ordine": i, "colore": "#6B7280"} for i, v in enumerate(vals)]
+            stati = [{"id": 0, "nome": str(v), "ordine": i, "colore": "#6B7280", "mostra_kanban": True} for i, v in enumerate(vals)]
 
     stati_nomi = [s["nome"] for s in stati]
     colori_default = ["#1E3A5F", "#059669", "#D97706", "#DC2626", "#7C3AED", "#0891B2", "#BE185D", "#4B5563"]
@@ -930,15 +933,18 @@ elif st.session_state.pagina == "configura_stati":
         for i in range(max(len(stati), 2)):
             default_nome = stati[i]["nome"] if i < len(stati) else ""
             default_colore = stati[i].get("colore", colori_default[i % len(colori_default)]) if i < len(stati) else colori_default[i % len(colori_default)]
-            sc1, sc2, sc3 = st.columns([2, 1, 0.5])
+            default_mostra = stati[i].get("mostra_kanban", True) if i < len(stati) else True
+            sc1, sc2, sc3, sc4 = st.columns([2, 1, 0.5, 0.5])
             with sc1:
                 nome_s = st.text_input(f"Stato {i+1}", value=default_nome, key=f"st_nome_{i}", label_visibility="collapsed", placeholder="Nome stato")
             with sc2:
                 colore_s = st.color_picker("Colore", value=default_colore, key=f"st_col_{i}", label_visibility="collapsed")
             with sc3:
                 st.markdown(f"**#{i+1}**" if default_nome or i == 0 else "")
+            with sc4:
+                mostra_s = st.checkbox("Kanban", value=default_mostra, key=f"st_mostra_{i}", label_visibility="collapsed", help="Mostra in Kanban")
             if nome_s and nome_s.strip():
-                nuovi_stati.append({"nome": nome_s.strip(), "colore": colore_s})
+                nuovi_stati.append({"nome": nome_s.strip(), "colore": colore_s, "mostra_kanban": mostra_s})
         if st.form_submit_button("💾 Salva stati", use_container_width=True, type="primary"):
             if nuovi_stati:
                 db.save_stati_list(fid, nuovi_stati)

@@ -539,9 +539,14 @@ def init_stati_table(file_id: int):
             nome TEXT NOT NULL,
             ordine INTEGER DEFAULT 0,
             colore TEXT DEFAULT '#6B7280',
+            mostra_kanban INTEGER DEFAULT 1,
             FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
         )
     """)
+    try:
+        conn.execute("ALTER TABLE stati_config ADD COLUMN mostra_kanban INTEGER DEFAULT 1")
+    except Exception:
+        pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS transizioni (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -590,15 +595,21 @@ def save_file_config(file_id: int, colonna_stato: str, colonna_titolo: str):
     conn.close()
 
 
-def get_stati_config(file_id: int):
+def get_stati_config(file_id: int, solo_kanban: bool = False):
     init_stati_table(file_id)
     conn = get_conn()
+    where = "WHERE file_id = ?"
+    if solo_kanban:
+        where += " AND mostra_kanban = 1"
     rows = conn.execute(
-        "SELECT id, nome, ordine, colore FROM stati_config WHERE file_id = ? ORDER BY ordine",
+        f"SELECT id, nome, ordine, colore, mostra_kanban FROM stati_config {where} ORDER BY ordine",
         (file_id,),
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    for r in result:
+        r["mostra_kanban"] = bool(r["mostra_kanban"])
+    return result
 
 
 def save_stati_list(file_id: int, stati: list):
@@ -606,8 +617,8 @@ def save_stati_list(file_id: int, stati: list):
     conn.execute("DELETE FROM stati_config WHERE file_id = ?", (file_id,))
     for i, s in enumerate(stati):
         conn.execute(
-            "INSERT INTO stati_config (file_id, nome, ordine, colore) VALUES (?, ?, ?, ?)",
-            (file_id, s["nome"], i, s.get("colore", "#6B7280")),
+            "INSERT INTO stati_config (file_id, nome, ordine, colore, mostra_kanban) VALUES (?, ?, ?, ?, ?)",
+            (file_id, s["nome"], i, s.get("colore", "#6B7280"), 1 if s.get("mostra_kanban", True) else 0),
         )
     conn.commit()
     conn.close()
