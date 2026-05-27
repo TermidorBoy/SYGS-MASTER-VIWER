@@ -348,15 +348,30 @@ def get_user_file_ids(utente_id: int, ruolo: str):
     return [r["file_id"] for r in rows]
 
 
+def can_edit(utente_id: int, ruolo: str, file_id: int) -> bool:
+    if ruolo == "admin":
+        return True
+    conn = get_conn()
+    row = conn.execute("SELECT modifica FROM permessi_file WHERE utente_id = ? AND file_id = ?",
+                       (utente_id, file_id)).fetchone()
+    conn.close()
+    return bool(row and row["modifica"])
+
+
 def get_permesso_file(utente_id: int, file_id: int):
     conn = get_conn()
-    row = conn.execute("SELECT colonne_visibili, filtro_righe FROM permessi_file WHERE utente_id = ? AND file_id = ?",
+    try:
+        conn.execute("ALTER TABLE permessi_file ADD COLUMN modifica INTEGER DEFAULT 0")
+    except Exception:
+        pass
+    row = conn.execute("SELECT colonne_visibili, filtro_righe, modifica FROM permessi_file WHERE utente_id = ? AND file_id = ?",
                        (utente_id, file_id)).fetchone()
     conn.close()
     if not row:
         return None
     import json
     d = dict(row)
+    d["modifica"] = bool(d["modifica"])
     if d["colonne_visibili"]:
         d["colonne_visibili"] = json.loads(d["colonne_visibili"])
     if d["filtro_righe"]:
@@ -364,17 +379,21 @@ def get_permesso_file(utente_id: int, file_id: int):
     return d
 
 
-def set_permesso_file(utente_id: int, file_id: int, colonne_visibili: list = None, filtro_righe: dict = None):
+def set_permesso_file(utente_id: int, file_id: int, colonne_visibili: list = None, filtro_righe: dict = None, modifica: bool = False):
     conn = get_conn()
+    try:
+        conn.execute("ALTER TABLE permessi_file ADD COLUMN modifica INTEGER DEFAULT 0")
+    except Exception:
+        pass
     import json
     cv = json.dumps(colonne_visibili) if colonne_visibili else None
     fr = json.dumps(filtro_righe) if filtro_righe else None
     conn.execute("""
-        INSERT INTO permessi_file (utente_id, file_id, colonne_visibili, filtro_righe)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO permessi_file (utente_id, file_id, colonne_visibili, filtro_righe, modifica)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(utente_id, file_id)
-        DO UPDATE SET colonne_visibili=excluded.colonne_visibili, filtro_righe=excluded.filtro_righe
-    """, (utente_id, file_id, cv, fr))
+        DO UPDATE SET colonne_visibili=excluded.colonne_visibili, filtro_righe=excluded.filtro_righe, modifica=excluded.modifica
+    """, (utente_id, file_id, cv, fr, 1 if modifica else 0))
     conn.commit()
     conn.close()
 

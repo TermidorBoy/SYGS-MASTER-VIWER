@@ -354,6 +354,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
     # Apply permissions
     u = st.session_state.utente
+    puo_modificare = u["ruolo"] == "admin" or db.can_edit(u["id"], u["ruolo"], fid)
     if u["ruolo"] != "admin":
         perm = db.get_permesso_file(u["id"], fid)
         if perm:
@@ -361,6 +362,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 colonne_dati = [c for c in colonne_dati if c in perm["colonne_visibili"]]
     # ── MODIFICA / AGGIUNGI ──
     if st.session_state.pagina == "modifica_record" or st.session_state.pagina == "aggiungi_record":
+        if not puo_modificare:
+            msg("Non hai il permesso di modificare i dati", "error")
+            st.session_state.pagina = "vedi_file"
+            st.rerun()
         is_new = st.session_state.pagina == "aggiungi_record"
         titolo = "➕ Nuovo record" if is_new else f"✏️ Modifica record #{st.session_state.modifica_id}"
         st.markdown(f"#### {titolo}")
@@ -384,6 +389,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             c = cfg["nome_campo"]
             if c not in colonne_dati:
                 continue
+            tipo = cfg["tipo_campo"]
             dv = rec[c] if rec is not None and pd.notna(rec[c]) else cfg.get("valore_predefinito")
             if dv is not None:
                 if tipo == "number":
@@ -393,7 +399,6 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                         dv = None
                 elif tipo == "boolean":
                     dv = bool(dv)
-            tipo = cfg["tipo_campo"]
             obbl = cfg["obbligatorio"]
             etichetta = f"{c} *" if obbl else c
             opts = cfg.get("opzioni") or []
@@ -470,12 +475,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.divider()
         ce1, ce2, ce3 = st.columns([1, 1, 1])
         with ce1:
-            if st.button("✏️ Modifica", use_container_width=True):
+            if puo_modificare and st.button("✏️ Modifica", use_container_width=True):
                 st.session_state.modifica_id = rid
                 st.session_state.pagina = "modifica_record"
                 st.rerun()
         with ce2:
-            if st.button("🗑️ Elimina", use_container_width=True):
+            if puo_modificare and st.button("🗑️ Elimina", use_container_width=True):
                 ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
                 if ok:
                     msg(f"✅ Record #{rid} eliminato")
@@ -518,9 +523,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.session_state.filtro_val = fv
                 st.rerun()
     with tb[3]:
-        if st.button("➕ Nuovo", use_container_width=True):
-            st.session_state.pagina = "aggiungi_record"
-            st.rerun()
+        if puo_modificare:
+            if st.button("➕ Nuovo", use_container_width=True):
+                st.session_state.pagina = "aggiungi_record"
+                st.rerun()
     with tb[4]:
         if st.button("📥 Export", use_container_width=True, help="Esporta in Excel"):
             percorso = info["percorso"]
@@ -694,19 +700,19 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         if len(display_cols) > 4:
             st.caption(f"+ {len(display_cols) - 4} campi")
 
-        ac1, ac2, ac3, ac4 = st.columns([1, 1, 1, 6])
+        ac1, ac2, ac3 = st.columns([1, 1, 8])
         with ac1:
             if st.button("👁️ Vedi", use_container_width=True):
                 st.session_state.vedi_id = rid
                 st.session_state.pagina = "dettaglio_record"
                 st.rerun()
         with ac2:
-            if st.button("✏️ Modifica", use_container_width=True):
+            if puo_modificare and st.button("✏️ Modifica", use_container_width=True):
                 st.session_state.modifica_id = rid
                 st.session_state.pagina = "modifica_record"
                 st.rerun()
         with ac3:
-            if st.button("🗑️ Elimina", use_container_width=True):
+            if puo_modificare and st.button("🗑️ Elimina", use_container_width=True):
                 ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
                 if ok:
                     msg(f"✅ Record #{rid} eliminato")
@@ -1076,9 +1082,11 @@ elif st.session_state.pagina == "utenti":
                             non_vis = [c for c in campi if c not in col_vis]
                             if non_vis:
                                 st.caption(f"Nascoste: {', '.join(non_vis)}")
+                        mod_perm = st.checkbox("Permetti modifica", value=perm["modifica"] if perm and perm.get("modifica") else False,
+                                               key=f"fp_mod_{ut['id']}_{f['id']}", help="Consenti all'utente di aggiungere/modificare/eliminare record")
                         with st.form(key=f"fp_save_{ut['id']}_{f['id']}", border=False):
                             if st.form_submit_button("Salva permessi", use_container_width=True):
-                                db.set_permesso_file(ut["id"], f["id"], col_vis if col_vis else None)
+                                db.set_permesso_file(ut["id"], f["id"], col_vis if col_vis else None, modifica=mod_perm)
                                 msg(f"Permessi aggiornati per {ut['nome']} su {f['nome_file']}")
                                 st.rerun()
                     elif has_perm:
