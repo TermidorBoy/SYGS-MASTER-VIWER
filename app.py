@@ -60,7 +60,8 @@ st.markdown("""
 INIT = {
     "pagina": "login", "utente": None, "msg": "", "msg_tipo": "success",
     "file_id": None, "filtro_col": "", "filtro_val": "", "ricerca": "",
-    "modifica_id": None, "vedi_id": None,
+    "modifica_id": None, "vedi_id": None, "visuale": "tabella",
+    "modifiche_pendenti": [],
 }
 for k, v in INIT.items():
     if k not in st.session_state:
@@ -486,7 +487,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([2, 1.3, 1.3, 0.8, 0.8, 0.8, 0.5])
+    tb = st.columns([1.5, 1, 1, 0.7, 0.7, 0.7, 0.7, 0.5])
     with tb[0]:
         s = st.text_input("🔍 Cerca", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
@@ -530,6 +531,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "configura_campi"
             st.rerun()
     with tb[6]:
+        v_label = "📋 Kanban" if st.session_state.visuale == "tabella" else "📊 Tabella"
+        if st.button(v_label, use_container_width=True, help="Cambia visuale"):
+            st.session_state.visuale = "kanban" if st.session_state.visuale == "tabella" else "tabella"
+            st.rerun()
+    with tb[7]:
         if st.button("🔄", use_container_width=True, help="Ricarica dati"):
             try:
                 buf, foglio_db = db.get_file_contenuto(fid)
@@ -564,6 +570,83 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
     if view_df.empty:
         st.warning("Nessun record trovato")
+        st.stop()
+
+    # ── KANBAN / TABLE ──
+    if st.session_state.visuale == "kanban":
+        fcfg = db.get_file_config(fid)
+        col_stato = fcfg.get("colonna_stato", "")
+        col_titolo = fcfg.get("colonna_titolo", "carpeta")
+        if not col_stato or col_stato not in colonne_dati:
+            st.warning("Configura la colonna 'Stato' nella pagina ⚙️ Campi → Stati")
+            st.session_state.visuale = "tabella"
+            st.rerun()
+
+        stati = db.get_stati_config(fid)
+        if not stati:
+            # auto-create from unique values
+            vals = sorted(df[col_stato].dropna().unique())
+            stati = [{"id": 0, "nome": str(v), "ordine": i, "colore": "#6B7280"} for i, v in enumerate(vals)]
+            if not stati:
+                stati = [{"id": 0, "nome": "Nessuno stato", "ordine": 0, "colore": "#6B7280"}]
+
+        # Kanban CSS
+        st.markdown(f"""
+        <style>
+        .kanban-row {{ display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; align-items: flex-start; }}
+        .kanban-col {{ min-width: 240px; max-width: 300px; flex: 1; background: #f3f4f6; border-radius: 10px; padding: 10px; }}
+        .kanban-col h4 {{ font-size: 0.85rem; font-weight: 600; margin: 0 0 8px 0; padding: 6px 10px; border-radius: 6px; color: white; text-align: center; }}
+        .kanban-card {{ background: white; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); font-size: 0.8rem; border: 1px solid #e5e7eb; }}
+        .kanban-card-title {{ font-weight: 600; font-size: 0.85rem; color: #1E3A5F; margin-bottom: 4px; }}
+        .kanban-card-id {{ color: #9CA3AF; font-size: 0.7rem; }}
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f'#### 📋 Kanban — {col_stato}')
+        # Link to configura stati
+        if st.button("⚙️ Configura stati", use_container_width=False):
+            st.session_state.pagina = "configura_stati"
+            st.rerun()
+
+        st.markdown('<div class="kanban-row">', unsafe_allow_html=True)
+        for stato in stati:
+            nome = stato["nome"]
+            colore = stato.get("colore", "#6B7280")
+            records_in_col = view_df[view_df[col_stato].astype(str) == nome]
+            with st.container():
+                st.markdown(f'<div class="kanban-col"><h4 style="background:{colore};">{nome} <span style="font-weight:400;opacity:0.8;">({len(records_in_col)})</span></h4>', unsafe_allow_html=True)
+                for _, rec in records_in_col.iterrows():
+                    rid = int(rec["id"])
+                    titolo = str(rec.get(col_titolo, "")) if col_titolo and col_titolo in rec and pd.notna(rec.get(col_titolo)) else f"Record #{rid}"
+                    st.markdown(f'<div class="kanban-card"><div class="kanban-card-title">{titolo}</div><div class="kanban-card-id">#{rid}</div></div>', unsafe_allow_html=True)
+                    # Move dropdown
+                    other_stati = [s["nome"] for s in stati if s["nome"] != nome]
+                    if other_stati:
+                        key = f"mv_{rid}_{nome.replace(' ','_')}"
+                        new_stato = st.selectbox("Sposta a", ["—"] + other_stati, key=key, label_visibility="collapsed")
+                        if new_stato and new_stato != "—":
+                            old_stato = nome
+                            # Execute transition actions
+                            trans = db.get_transizioni(fid)
+                            for t in trans:
+                                if t["stato_da"] == old_stato and t["stato_a"] == new_stato:
+                                    action = t["azione_tipo"]
+                                    col = t["colonna_destinazione"]
+                                    val = t["valore"]
+                                    if action == "set_data" and col:
+                                        from datetime import date
+                                        db.aggiorna_record(fid, rid, {col: str(date.today())})
+                                    elif action == "set_timestamp" and col:
+                                        from datetime import datetime
+                                        db.aggiorna_record(fid, rid, {col: str(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))})
+                                    elif action == "set_valore" and col and val:
+                                        db.aggiorna_record(fid, rid, {col: val})
+                            # Move the record
+                            db.aggiorna_record(fid, rid, {col_stato: new_stato})
+                            st.toast(f"📦 #{rid} → {new_stato}")
+                            st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         st.stop()
 
     # ── TABLE ──
@@ -623,46 +706,31 @@ elif st.session_state.pagina == "configura_campi":
         st.session_state.pagina = "dashboard"
         st.rerun()
 
-    def salva_campo(cid, campo_nome, nuovo_nome, tipo, obbl, mostra, opts_str, is_select):
-        if is_select:
-            new_opzioni = None
-            if opts_str and opts_str.strip():
-                new_opzioni = [o.strip() for o in opts_str.split(",")]
-            else:
-                df_cfg = db.carica_dati(fid)
-                if df_cfg is not None and campo_nome in df_cfg.columns:
-                    vals = df_cfg[campo_nome].dropna().unique()
-                    new_opzioni = sorted([str(v) for v in vals if v != "" and str(v).strip() != ""])
-                    if not new_opzioni:
-                        new_opzioni = [" "]
-            new_default = None
-        else:
-            new_opzioni = None
-            new_default = opts_str.strip() if opts_str and opts_str.strip() else None
-        db.aggiorna_campo_config(cid, tipo_campo=tipo, obbligatorio=obbl,
-                                  opzioni=new_opzioni, mostra_modulo=mostra,
-                                  valore_predefinito=new_default)
-        if nuovo_nome.strip() and nuovo_nome.strip() != campo_nome:
-            db.rinomina_colonna(fid, campo_nome, nuovo_nome.strip())
+    if "modifiche_pendenti" not in st.session_state:
+        st.session_state.modifiche_pendenti = []
 
     st.markdown(f'<div class="page-title">⚙️ Configura campi</div>', unsafe_allow_html=True)
-    col_back, col_add = st.columns([1, 2])
+    col_back, col_stati, col_add = st.columns([1, 1, 2])
     with col_back:
         if st.button("🔙 Torna al file", use_container_width=False):
+            st.session_state.modifiche_pendenti = []
             st.session_state.pagina = "vedi_file"
+            st.rerun()
+    with col_stati:
+        if st.button("📋 Stati", use_container_width=False, help="Configura stati Kanban"):
+            st.session_state.pagina = "configura_stati"
             st.rerun()
     with col_add:
         with st.expander("➕ Aggiungi colonna"):
             with st.form("nuova_colonna", border=False):
                 c_nome = st.text_input("Nome colonna", placeholder="Nuovo campo")
                 c_tipo = st.selectbox("Tipo", ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"])
-                if st.form_submit_button("➕ Crea colonna", use_container_width=True, type="primary"):
+                if st.form_submit_button("➕ Accoda", use_container_width=True):
                     if c_nome.strip():
-                        db.aggiungi_colonna(fid, c_nome.strip(), c_tipo)
-                        msg(f"Colonna '{c_nome}' creata")
-                        st.rerun()
+                        st.session_state.modifiche_pendenti.append({"tipo": "aggiungi", "nome": c_nome.strip(), "tipo_campo": c_tipo})
+                        st.markdown(f'<span style="color:#10B981;">✅ "{c_nome.strip()}" in coda</span>', unsafe_allow_html=True)
                     else:
-                        msg("Inserisci un nome", "warning")
+                        st.markdown(f'<span style="color:#EF4444;">Inserisci un nome</span>', unsafe_allow_html=True)
     st.divider()
 
     campi = db.get_campi_config(fid)
@@ -675,6 +743,49 @@ elif st.session_state.pagina == "configura_campi":
         msg("Nessuna colonna trovata", "error")
         st.session_state.pagina = "vedi_file"
         st.rerun()
+
+    # ── PENDING CHANGES PANEL ──
+    if st.session_state.modifiche_pendenti:
+        pendenti = st.session_state.modifiche_pendenti
+        n_queue = sum(1 for m in pendenti if m["tipo"] != "elimina")
+        n_del = sum(1 for m in pendenti if m["tipo"] == "elimina")
+        with st.container():
+            st.markdown(f"#### 📋 Modifiche in coda ({len(pendenti)})")
+            for i, m in enumerate(pendenti):
+                if m["tipo"] == "aggiorna":
+                    label = f"✏️ **{m['campo_old']}** — tipo: `{m['tipo_campo']}`, obbl: {'✓' if m['obbl'] else '✗'}, form: {'✓' if m['mostra'] else '✗'}"
+                elif m["tipo"] == "rinomina":
+                    label = f"🔤 **{m['vecchio']}** → **{m['nuovo']}**"
+                elif m["tipo"] == "elimina":
+                    label = f"🗑️ **{m['nome']}**"
+                elif m["tipo"] == "aggiungi":
+                    label = f"➕ **{m['nome']}** (`{m['tipo_campo']}`)"
+                else:
+                    label = str(m)
+                st.markdown(f"- {label}")
+            ca1, ca2 = st.columns([1, 1])
+            with ca1:
+                if st.button("✅ Applica tutte", use_container_width=True, type="primary"):
+                    for m in pendenti:
+                        try:
+                            if m["tipo"] == "aggiorna":
+                                db.aggiorna_campo_config(m["config_id"], tipo_campo=m["tipo_campo"], obbligatorio=m["obbl"], opzioni=m.get("opzioni"), mostra_modulo=m["mostra"], valore_predefinito=m.get("default"))
+                            elif m["tipo"] == "rinomina":
+                                db.rinomina_colonna(fid, m["vecchio"], m["nuovo"])
+                            elif m["tipo"] == "elimina":
+                                db.elimina_colonna(fid, m["config_id"], m["nome"])
+                            elif m["tipo"] == "aggiungi":
+                                db.aggiungi_colonna(fid, m["nome"], m["tipo_campo"])
+                        except Exception:
+                            pass
+                    st.session_state.modifiche_pendenti = []
+                    msg("✅ Modifiche applicate")
+                    st.rerun()
+            with ca2:
+                if st.button("🗑️ Annulla tutto", use_container_width=True):
+                    st.session_state.modifiche_pendenti = []
+                    st.rerun()
+        st.divider()
 
     # Header
     hdr = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
@@ -712,16 +823,161 @@ elif st.session_state.pagina == "configura_campi":
                                              key=f"def_{campo['id']}", label_visibility="collapsed",
                                              placeholder="Valore default")
             with cols[5]:
-                if st.button("💾", key=f"save_cfg_{campo['id']}", help="Salva"):
-                    salva_campo(campo["id"], campo["nome_campo"], nuovo_nome, tipo, obbl, mostra, opts_str, is_select)
-                    msg(f"✅ '{campo['nome_campo']}' salvato")
-                    st.rerun()
+                if st.button("📋", key=f"queue_{campo['id']}", help="Accoda modifica"):
+                    new_opzioni = None
+                    new_default = None
+                    if is_select:
+                        if opts_str and opts_str.strip():
+                            new_opzioni = [o.strip() for o in opts_str.split(",")]
+                        else:
+                            df_cfg = db.carica_dati(fid)
+                            if df_cfg is not None and campo['nome_campo'] in df_cfg.columns:
+                                vals = df_cfg[campo['nome_campo']].dropna().unique()
+                                new_opzioni = sorted([str(v) for v in vals if v != "" and str(v).strip() != ""])
+                                if not new_opzioni:
+                                    new_opzioni = [" "]
+                    else:
+                        new_default = opts_str.strip() if opts_str and opts_str.strip() else None
+                    st.session_state.modifiche_pendenti.append({
+                        "tipo": "aggiorna", "config_id": campo["id"],
+                        "tipo_campo": tipo, "obbl": obbl, "mostra": mostra,
+                        "opzioni": new_opzioni, "default": new_default,
+                        "campo_old": campo["nome_campo"],
+                    })
+                    if nuovo_nome.strip() and nuovo_nome.strip() != campo["nome_campo"]:
+                        st.session_state.modifiche_pendenti.append({
+                            "tipo": "rinomina", "config_id": campo["id"],
+                            "vecchio": campo["nome_campo"], "nuovo": nuovo_nome.strip(),
+                        })
+                    st.toast(f"📋 '{campo['nome_campo']}' accodato ({len(st.session_state.modifiche_pendenti)})")
             with cols[6]:
                 if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina"):
-                    db.elimina_colonna(fid, campo["id"], campo["nome_campo"])
-                    msg(f"Colonna eliminata")
-                    st.rerun()
+                    st.session_state.modifiche_pendenti.append({
+                        "tipo": "elimina", "config_id": campo["id"], "nome": campo["nome_campo"],
+                    })
+                    st.toast(f"🗑️ '{campo['nome_campo']}' in coda per eliminazione")
             st.divider()
+
+# ── CONFIGURA STATI (Kanban) ────────────────────────────────────
+elif st.session_state.pagina == "configura_stati":
+    fid = st.session_state.file_id
+    if fid is None:
+        msg("Nessun file selezionato", "warning")
+        st.session_state.pagina = "dashboard"
+        st.rerun()
+
+    st.markdown(f'<div class="page-title">📋 Configura stati</div>', unsafe_allow_html=True)
+
+    col_back, _ = st.columns([1, 3])
+    with col_back:
+        if st.button("🔙 Torna al file", use_container_width=False):
+            st.session_state.pagina = "vedi_file"
+            st.rerun()
+    st.divider()
+
+    fcfg = db.get_file_config(fid)
+    campi_disponibili = []
+    df_cfg = db.carica_dati(fid)
+    if df_cfg is not None:
+        campi_disponibili = [c for c in df_cfg.columns if c not in ("id", "creato_da", "creato_il")]
+
+    col_stato = st.selectbox("Colonna stato", [""] + campi_disponibili,
+                             index=0 if not fcfg.get("colonna_stato") else (campi_disponibili.index(fcfg["colonna_stato"]) + 1) if fcfg["colonna_stato"] in campi_disponibili else 0,
+                             help="Colonna che contiene lo stato di ogni record")
+    col_titolo = st.selectbox("Colonna titolo (card)", [""] + campi_disponibili,
+                              index=0 if not fcfg.get("colonna_titolo") else (campi_disponibili.index(fcfg["colonna_titolo"]) + 1) if fcfg["colonna_titolo"] in campi_disponibili else 0,
+                              help="Colonna usata come titolo della card nel Kanban (es. 'carpeta')")
+    if st.button("💾 Salva colonne", use_container_width=False):
+        db.save_file_config(fid, col_stato, col_titolo)
+        msg("✅ Colonne salvate")
+        st.rerun()
+
+    st.divider()
+
+    if not col_stato:
+        st.info("Seleziona prima la colonna 'Stato'")
+        st.stop()
+
+    # Stati
+    st.markdown("#### Ordine e colori degli stati")
+    stati = db.get_stati_config(fid)
+    if not stati:
+        # auto-populate from data
+        if df_cfg is not None and col_stato in df_cfg.columns:
+            vals = sorted(df_cfg[col_stato].dropna().unique())
+            stati = [{"id": 0, "nome": str(v), "ordine": i, "colore": "#6B7280"} for i, v in enumerate(vals)]
+
+    stati_nomi = [s["nome"] for s in stati]
+    colori_default = ["#1E3A5F", "#059669", "#D97706", "#DC2626", "#7C3AED", "#0891B2", "#BE185D", "#4B5563"]
+
+    with st.form("stati_form", border=False):
+        nuovi_stati = []
+        for i in range(max(len(stati), 2)):
+            default_nome = stati[i]["nome"] if i < len(stati) else ""
+            default_colore = stati[i].get("colore", colori_default[i % len(colori_default)]) if i < len(stati) else colori_default[i % len(colori_default)]
+            sc1, sc2, sc3 = st.columns([2, 1, 0.5])
+            with sc1:
+                nome_s = st.text_input(f"Stato {i+1}", value=default_nome, key=f"st_nome_{i}", label_visibility="collapsed", placeholder="Nome stato")
+            with sc2:
+                colore_s = st.color_picker("Colore", value=default_colore, key=f"st_col_{i}", label_visibility="collapsed")
+            with sc3:
+                st.markdown(f"**#{i+1}**" if default_nome or i == 0 else "")
+            if nome_s and nome_s.strip():
+                nuovi_stati.append({"nome": nome_s.strip(), "colore": colore_s})
+        if st.form_submit_button("💾 Salva stati", use_container_width=True, type="primary"):
+            if nuovi_stati:
+                db.save_stati_list(fid, nuovi_stati)
+                msg(f"✅ {len(nuovi_stati)} stati salvati")
+                st.rerun()
+            else:
+                msg("Inserisci almeno uno stato", "warning")
+
+    st.divider()
+    st.markdown("#### ⚡ Transizioni (azioni al cambio stato)")
+    st.caption("Esempio: quando sposti da 'Da iniziare' a 'Pasc evaso', imposta la data odierna nella colonna 'Data inizio'")
+
+    trans = db.get_transizioni(fid)
+    with st.form("nuova_transizione", border=False):
+        tutti_stati = list(set([s["nome"] for s in stati] + [t["stato_da"] for t in trans] + [t["stato_a"] for t in trans]))
+        if not tutti_stati:
+            tutti_stati = stati_nomi
+        td = st.selectbox("Da stato", [""] + tutti_stati, key="trans_da")
+        ta = st.selectbox("A stato", [""] + tutti_stati, key="trans_a")
+        azione = st.selectbox("Azione", ["", "set_data", "set_timestamp", "set_valore"], key="trans_az",
+                              format_func=lambda x: {"": "Seleziona azione", "set_data": "Imposta data odierna", "set_timestamp": "Imposta timestamp", "set_valore": "Imposta valore"}.get(x, x))
+        if azione == "set_valore":
+            ac = st.selectbox("Colonna destinazione", [""] + campi_disponibili, key="trans_col_val")
+            av = st.text_input("Valore", key="trans_val")
+        elif azione:
+            ac = st.selectbox("Colonna destinazione", [""] + campi_disponibili, key="trans_col")
+            av = ""
+        else:
+            ac = ""
+            av = ""
+        if st.form_submit_button("➕ Aggiungi transizione", use_container_width=True, type="primary"):
+            if td and ta and azione and ac:
+                db.save_transizione(fid, td, ta, azione, ac, av)
+                msg(f"✅ Transizione: {td} → {ta}")
+                st.rerun()
+            else:
+                msg("Compila Da, A, Azione e Colonna", "warning")
+
+    if trans:
+        st.markdown("**Transizioni esistenti:**")
+        for t in trans:
+            ct1, ct2, ct3 = st.columns([2, 3, 0.5])
+            with ct1:
+                az_label = {"set_data": "📅 Data", "set_timestamp": "⏰ Timestamp", "set_valore": "📝 Valore"}.get(t["azione_tipo"], t["azione_tipo"])
+                st.markdown(f"**{t['stato_da']}** → **{t['stato_a']}**: {az_label} in `{t['colonna_destinazione']}`" + (f" = '{t['valore']}'" if t['valore'] else ""))
+            with ct2:
+                st.caption(f"id: {t['id']}")
+            with ct3:
+                if st.button("🗑️", key=f"del_trans_{t['id']}", help="Elimina transizione"):
+                    db.elimina_transizione(t["id"])
+                    msg("Transizione eliminata")
+                    st.rerun()
+    else:
+        st.caption("Nessuna transizione configurata")
 
 # ── GESTIONE UTENTI (admin only) ────────────────────────────────
 elif st.session_state.pagina == "utenti":

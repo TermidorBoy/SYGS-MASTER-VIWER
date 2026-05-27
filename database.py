@@ -526,3 +526,116 @@ def esporta_excel(file_id: int, percorso: str):
         df.to_excel(percorso, index=False)
         return True
     return False
+
+
+# ── Stati (Kanban) ──
+
+def init_stati_table(file_id: int):
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS stati_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            nome TEXT NOT NULL,
+            ordine INTEGER DEFAULT 0,
+            colore TEXT DEFAULT '#6B7280',
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS transizioni (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            stato_da TEXT NOT NULL,
+            stato_a TEXT NOT NULL,
+            azione_tipo TEXT,
+            colonna_destinazione TEXT,
+            valore TEXT,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS file_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER UNIQUE NOT NULL,
+            colonna_stato TEXT DEFAULT '',
+            colonna_titolo TEXT DEFAULT '',
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_file_config(file_id: int):
+    init_stati_table(file_id)
+    conn = get_conn()
+    row = conn.execute("SELECT colonna_stato, colonna_titolo FROM file_config WHERE file_id = ?", (file_id,)).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {"colonna_stato": "", "colonna_titolo": ""}
+
+
+def save_file_config(file_id: int, colonna_stato: str, colonna_titolo: str):
+    init_stati_table(file_id)
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO file_config (file_id, colonna_stato, colonna_titolo)
+        VALUES (?, ?, ?)
+        ON CONFLICT(file_id)
+        DO UPDATE SET colonna_stato=excluded.colonna_stato, colonna_titolo=excluded.colonna_titolo
+    """, (file_id, colonna_stato, colonna_titolo))
+    conn.commit()
+    conn.close()
+
+
+def get_stati_config(file_id: int):
+    init_stati_table(file_id)
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, nome, ordine, colore FROM stati_config WHERE file_id = ? ORDER BY ordine",
+        (file_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_stati_list(file_id: int, stati: list):
+    conn = get_conn()
+    conn.execute("DELETE FROM stati_config WHERE file_id = ?", (file_id,))
+    for i, s in enumerate(stati):
+        conn.execute(
+            "INSERT INTO stati_config (file_id, nome, ordine, colore) VALUES (?, ?, ?, ?)",
+            (file_id, s["nome"], i, s.get("colore", "#6B7280")),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_transizioni(file_id: int):
+    init_stati_table(file_id)
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, stato_da, stato_a, azione_tipo, colonna_destinazione, valore FROM transizioni WHERE file_id = ? ORDER BY id",
+        (file_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_transizione(file_id: int, stato_da: str, stato_a: str, azione_tipo: str, colonna: str, valore: str):
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO transizioni (file_id, stato_da, stato_a, azione_tipo, colonna_destinazione, valore) VALUES (?, ?, ?, ?, ?, ?)",
+        (file_id, stato_da, stato_a, azione_tipo, colonna, valore),
+    )
+    conn.commit()
+    conn.close()
+
+
+def elimina_transizione(tid: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM transizioni WHERE id = ?", (tid,))
+    conn.commit()
+    conn.close()
