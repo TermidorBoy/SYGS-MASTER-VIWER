@@ -43,10 +43,15 @@ def init_db():
             foglio TEXT DEFAULT 'Sheet1',
             colonne TEXT,
             righe INTEGER DEFAULT 0,
+            contenuto BLOB,
             caricato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (utente_id) REFERENCES utenti(id) ON DELETE CASCADE
         );
     """)
+    try:
+        conn.execute("ALTER TABLE file_excel ADD COLUMN contenuto BLOB")
+    except Exception:
+        pass
     cur = conn.execute("SELECT id FROM utenti WHERE email = ?", ("s.galvis@setinstudio.com",))
     if not cur.fetchone():
         conn.execute(
@@ -128,21 +133,21 @@ def aggiorna_accesso(uid: int):
 
 # ── File Excel ──
 
-def salva_file_excel(utente_id: int, percorso: str, foglio: str, colonne: list, righe: int):
+def salva_file_excel(utente_id: int, percorso: str, foglio: str, colonne: list, righe: int, contenuto: bytes = None):
     conn = get_conn()
     nome = os.path.basename(percorso)
     cur = conn.execute("SELECT id FROM file_excel WHERE utente_id = ? AND percorso = ?", (utente_id, percorso))
     existing = cur.fetchone()
     if existing:
         conn.execute(
-            "UPDATE file_excel SET foglio=?, colonne=?, righe=?, caricato_il=CURRENT_TIMESTAMP WHERE id=?",
-            (foglio, ",".join(colonne), righe, existing["id"]),
+            "UPDATE file_excel SET foglio=?, colonne=?, righe=?, contenuto=COALESCE(?, contenuto), caricato_il=CURRENT_TIMESTAMP WHERE id=?",
+            (foglio, ",".join(colonne), righe, contenuto, existing["id"]),
         )
         fid = existing["id"]
     else:
         cur = conn.execute(
-            "INSERT INTO file_excel (utente_id, percorso, nome_file, foglio, colonne, righe) VALUES (?, ?, ?, ?, ?, ?)",
-            (utente_id, percorso, nome, foglio, ",".join(colonne), righe),
+            "INSERT INTO file_excel (utente_id, percorso, nome_file, foglio, colonne, righe, contenuto) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (utente_id, percorso, nome, foglio, ",".join(colonne), righe, contenuto),
         )
         fid = cur.lastrowid
     conn.commit()
@@ -158,6 +163,16 @@ def file_utente(utente_id: int):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_file_contenuto(fid: int):
+    conn = get_conn()
+    row = conn.execute("SELECT contenuto, percorso, foglio FROM file_excel WHERE id = ?", (fid,)).fetchone()
+    conn.close()
+    if row and row["contenuto"]:
+        import io
+        return io.BytesIO(row["contenuto"]), row["foglio"]
+    return None, None
 
 
 def elimina_file(fid: int):

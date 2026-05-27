@@ -248,15 +248,41 @@ elif st.session_state.pagina == "carica":
     st.markdown('<div class="page-title">📂 Carica file Excel</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Importa un file Excel nel database</div>', unsafe_allow_html=True)
 
+    uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed")
+    if uploaded:
+        try:
+            sn = 0
+            contenuto = uploaded.read()
+            uploaded.seek(0)
+            df = pd.read_excel(uploaded, sheet_name=sn, engine='openpyxl')
+            if df.empty:
+                msg("Il file è vuoto", "warning")
+            else:
+                nome = uploaded.name
+                fid = db.salva_file_excel(st.session_state.utente["id"], nome,
+                                          "Sheet1", list(df.columns), len(df), contenuto)
+                db.init_data_table(fid, df)
+                st.session_state.file_id = fid
+                msg(f"✅ Importati {len(df)} record da '{nome}'")
+                st.session_state.pagina = "vedi_file"
+                st.rerun()
+        except Exception as e:
+            msg(f"Errore: {e}", "error")
+
+    st.markdown("##### Oppure inserisci il percorso locale")
     percorso = st.text_input("Percorso del file .xlsx",
-                             placeholder="C:/documenti/miei_dati.xlsx")
+                             placeholder="C:/documenti/miei_dati.xlsx",
+                             label_visibility="collapsed")
     foglio = st.text_input("Nome foglio (opzionale, default: primo foglio)", placeholder="Sheet1")
 
-    if st.button("📥 Carica", use_container_width=True, type="primary"):
+    if st.button("📥 Carica da percorso", use_container_width=True, type="primary"):
+        if percorso:
+            percorso = percorso.strip().strip('"').strip("'")
         if not percorso:
             msg("Inserisci il percorso del file", "warning")
         elif not os.path.exists(percorso):
             msg("File non trovato", "error")
+            st.caption(f"Percorso inserito: `{percorso}`")
         else:
             try:
                 sn = foglio if foglio else 0
@@ -453,7 +479,14 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     with tb[5]:
         if st.button("🔄", use_container_width=True, help="Ricarica dati"):
             try:
-                df_new = pd.read_excel(info["percorso"], sheet_name=info["foglio"] if info["foglio"] != "Sheet1" else 0, engine='openpyxl')
+                buf, foglio_db = db.get_file_contenuto(fid)
+                if buf:
+                    foglio_sn = info.get("foglio", 0)
+                    if foglio_sn == "Sheet1":
+                        foglio_sn = 0
+                    df_new = pd.read_excel(buf, sheet_name=foglio_sn, engine='openpyxl')
+                else:
+                    df_new = pd.read_excel(info["percorso"], sheet_name=info["foglio"] if info["foglio"] != "Sheet1" else 0, engine='openpyxl')
                 db.init_data_table(fid, df_new)
                 msg("✅ Dati ricaricati dal file Excel")
             except Exception as e:
