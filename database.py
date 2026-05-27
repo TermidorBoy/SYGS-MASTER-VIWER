@@ -298,7 +298,7 @@ def init_data_table(file_id: int, df: pd.DataFrame):
             cols_def.append(f'"{safe}" TEXT')
         else:
             cols_def.append(f'"{safe}" TEXT')
-    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, {", ".join(cols_def)})')
+    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
     placeholders = ", ".join(["?" for _ in df.columns])
     cols_insert = ", ".join(f'"{c}"' for c in safe_cols)
     for _, row in df.iterrows():
@@ -322,7 +322,27 @@ def init_data_table_vuoto(file_id: int, colonne: list):
     table = f"dati_{file_id}"
     conn.execute(f"DROP TABLE IF EXISTS [{table}]")
     cols_def = [f'"{c.strip().replace(" ", "_").replace("'", "").replace("\"", "").replace(".", "_")}" TEXT' for c in colonne]
-    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, {", ".join(cols_def)})')
+    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
+    conn.commit()
+    conn.close()
+
+
+def migra_tabella(file_id: int):
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    for col in ["creato_da", "creato_il"]:
+        try:
+            conn.execute(f"ALTER TABLE [{table}] ADD COLUMN {col} TEXT")
+        except Exception:
+            pass
+    try:
+        conn.execute(f"ALTER TABLE [{table}] ADD COLUMN creato_da INTEGER")
+    except Exception:
+        pass
+    try:
+        conn.execute(f"ALTER TABLE [{table}] ADD COLUMN creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -347,18 +367,49 @@ def aggiorna_record(file_id: int, record_id: int, valori: dict):
     conn.close()
 
 
-def elimina_record(file_id: int, record_id: int):
+def elimina_record(file_id: int, record_id: int, utente_id: int = None, ruolo: str = None):
     conn = get_conn()
+    if ruolo == "admin":
+        conn.execute(f"DELETE FROM [dati_{file_id}] WHERE id = ?", (record_id,))
+        conn.commit()
+        conn.close()
+        return True, None
+    row = conn.execute(f"SELECT creato_da, creato_il FROM [dati_{file_id}] WHERE id = ?", (record_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "Record non trovato"
+    if row["creato_da"] != utente_id:
+        conn.close()
+        return False, "Non puoi eliminare record creati da altri utenti. Contatta l'amministratore."
+    import time
+    from datetime import datetime, timedelta
+    ts = row["creato_il"]
+    if ts:
+        try:
+            created = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+            if datetime.now() - created > timedelta(minutes=5):
+                conn.close()
+                return False, "Sono passati più di 5 minuti dalla creazione. Contatta l'amministratore per eliminare."
+        except Exception:
+            pass
     conn.execute(f"DELETE FROM [dati_{file_id}] WHERE id = ?", (record_id,))
     conn.commit()
     conn.close()
+    return True, None
 
 
-def aggiungi_record(file_id: int, valori: dict):
+def aggiungi_record(file_id: int, valori: dict, utente_id: int = None):
     conn = get_conn()
-    cols = ", ".join(f'"{k}"' for k in valori)
-    placeholders = ", ".join(["?" for _ in valori])
-    conn.execute(f"INSERT INTO [dati_{file_id}] ({cols}) VALUES ({placeholders})", list(valori.values()))
+    extra_cols = []
+    extra_vals = []
+    if utente_id is not None:
+        extra_cols.append("creato_da")
+        extra_vals.append(utente_id)
+    all_cols = [f'"{k}"' for k in valori] + extra_cols
+    all_vals = list(valori.values()) + extra_vals
+    cols = ", ".join(all_cols)
+    placeholders = ", ".join(["?" for _ in all_vals])
+    conn.execute(f"INSERT INTO [dati_{file_id}] ({cols}) VALUES ({placeholders})", all_vals)
     conn.commit()
     conn.close()
 

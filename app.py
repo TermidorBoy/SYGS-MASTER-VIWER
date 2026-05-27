@@ -324,12 +324,13 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         if st.button("🏠  Dashboard", use_container_width=True):
             cambia_pagina("dashboard")
 
+    db.migra_tabella(fid)
     df = db.carica_dati(fid)
     if df is None or df.empty:
         st.warning("Nessun dato disponibile")
         st.stop()
 
-    colonne_dati = [c for c in df.columns if c != "id"]
+    colonne_dati = [c for c in df.columns if c not in ("id", "creato_da", "creato_il")]
 
     # ── MODIFICA / AGGIUNGI ──
     if st.session_state.pagina == "modifica_record" or st.session_state.pagina == "aggiungi_record":
@@ -401,7 +402,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                     else:
                         safe_vals[c] = v
                 if is_new:
-                    db.aggiungi_record(fid, safe_vals)
+                    db.aggiungi_record(fid, safe_vals, st.session_state.utente["id"])
                     msg("✅ Record aggiunto")
                 else:
                     db.aggiorna_record(fid, st.session_state.modifica_id, safe_vals)
@@ -437,9 +438,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.rerun()
         with ce2:
             if st.button("🗑️ Elimina", use_container_width=True):
-                db.elimina_record(fid, rid)
-                msg(f"✅ Record #{rid} eliminato")
-                st.session_state.pagina = "vedi_file"
+                ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
+                if ok:
+                    msg(f"✅ Record #{rid} eliminato")
+                    st.session_state.pagina = "vedi_file"
+                else:
+                    msg(err, "error")
                 st.rerun()
         with ce3:
             if st.button("🔙 Indietro", use_container_width=True):
@@ -563,8 +567,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.rerun()
         with ac3:
             if st.button("🗑️ Elimina", use_container_width=True):
-                db.elimina_record(fid, rid)
-                msg(f"✅ Record #{rid} eliminato")
+                ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
+                if ok:
+                    msg(f"✅ Record #{rid} eliminato")
+                else:
+                    msg(err, "error")
                 st.rerun()
     else:
         st.info("👆 Seleziona una riga per vedere le azioni")
