@@ -654,6 +654,12 @@ elif st.session_state.pagina == "configura_campi":
         st.session_state.pagina = "vedi_file"
         st.rerun()
 
+    # Header
+    hdr = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
+    for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Opzioni/Default", "", ""]):
+        with h:
+            st.markdown(f"**{label}**" if label else "")
+
     for campo in campi:
         with st.container():
             cols = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
@@ -668,11 +674,9 @@ elif st.session_state.pagina == "configura_campi":
                     label_visibility="collapsed",
                 )
             with cols[2]:
-                obbl = st.checkbox("Obbligatorio", value=campo["obbligatorio"], key=f"obbl_{campo['id']}",
-                                   label_visibility="collapsed")
+                obbl = st.checkbox("Obbligatorio", value=campo["obbligatorio"], key=f"obbl_{campo['id']}", label_visibility="collapsed")
             with cols[3]:
-                mostra = st.checkbox("Mostra", value=campo["mostra_modulo"], key=f"mostra_{campo['id']}",
-                                     label_visibility="collapsed", help="Mostra nel modulo di inserimento")
+                mostra = st.checkbox("Mostra nel form", value=campo["mostra_modulo"], key=f"mostra_{campo['id']}", label_visibility="collapsed")
             with cols[4]:
                 if tipo in ("single_select", "multi_select"):
                     current_opts = ", ".join(campo.get("opzioni", [])) if campo.get("opzioni") else ""
