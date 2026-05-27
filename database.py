@@ -52,6 +52,22 @@ def init_db():
         conn.execute("ALTER TABLE file_excel ADD COLUMN contenuto BLOB")
     except Exception:
         pass
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS campi_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            nome_campo TEXT NOT NULL,
+            tipo_campo TEXT DEFAULT 'text',
+            obbligatorio INTEGER DEFAULT 0,
+            opzioni TEXT,
+            ordine INTEGER DEFAULT 0,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
+        );
+    """)
+    try:
+        conn.execute("ALTER TABLE campi_config ADD COLUMN opzioni TEXT")
+    except Exception:
+        pass
     cur = conn.execute("SELECT id FROM utenti WHERE email = ?", ("s.galvis@setinstudio.com",))
     if not cur.fetchone():
         conn.execute(
@@ -180,6 +196,61 @@ def elimina_file(fid: int):
     conn.execute(f"DROP TABLE IF EXISTS [dati_{fid}]")
     conn.execute("DELETE FROM file_excel WHERE id = ?", (fid,))
     conn.commit()
+    conn.close()
+
+
+# ── Configurazione Campi ──
+
+def init_campi_config(file_id: int, colonne: list):
+    conn = get_conn()
+    existing = conn.execute("SELECT COUNT(*) as cnt FROM campi_config WHERE file_id = ?", (file_id,)).fetchone()
+    if existing and existing["cnt"] > 0:
+        conn.close()
+        return
+    for i, c in enumerate(colonne):
+        conn.execute(
+            "INSERT INTO campi_config (file_id, nome_campo, tipo_campo, obbligatorio, ordine) VALUES (?, ?, 'text', 0, ?)",
+            (file_id, c, i),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_campi_config(file_id: int):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, nome_campo, tipo_campo, obbligatorio, opzioni FROM campi_config WHERE file_id = ? ORDER BY ordine",
+        (file_id,),
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        if d["opzioni"]:
+            import json
+            d["opzioni"] = json.loads(d["opzioni"])
+        d["obbligatorio"] = bool(d["obbligatorio"])
+        result.append(d)
+    return result
+
+
+def aggiorna_campo_config(config_id: int, tipo_campo: str = None, obbligatorio: bool = None, opzioni: list = None):
+    conn = get_conn()
+    sets = []
+    params = []
+    if tipo_campo is not None:
+        sets.append("tipo_campo = ?")
+        params.append(tipo_campo)
+    if obbligatorio is not None:
+        sets.append("obbligatorio = ?")
+        params.append(1 if obbligatorio else 0)
+    if opzioni is not None:
+        import json
+        sets.append("opzioni = ?")
+        params.append(json.dumps(opzioni))
+    if sets:
+        conn.execute(f"UPDATE campi_config SET {', '.join(sets)} WHERE id = ?", params + [config_id])
+        conn.commit()
     conn.close()
 
 

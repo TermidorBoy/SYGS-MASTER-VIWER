@@ -261,6 +261,7 @@ elif st.session_state.pagina == "carica":
                 fid = db.salva_file_excel(st.session_state.utente["id"], nome,
                                           "Sheet1", list(df.columns), len(df), contenuto)
                 db.init_data_table(fid, df)
+                db.init_campi_config(fid, list(df.columns))
                 st.session_state.file_id = fid
                 msg(f"✅ Importati {len(df)} record da '{nome}'")
                 st.session_state.pagina = "vedi_file"
@@ -329,6 +330,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         titolo = "➕ Nuovo record" if is_new else f"✏️ Modifica record #{st.session_state.modifica_id}"
         st.markdown(f"#### {titolo}")
 
+        campi_config = db.get_campi_config(fid)
+        if not campi_config:
+            campi_config = [{"id": 0, "nome_campo": c, "tipo_campo": "text", "obbligatorio": False, "opzioni": None} for c in colonne_dati]
+
         rec = None
         if not is_new:
             rec_df = df[df["id"] == st.session_state.modifica_id]
@@ -336,29 +341,56 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 rec = rec_df.iloc[0]
 
         vals = {}
-        for c in colonne_dati:
+        errori = {}
+        for cfg in campi_config:
+            c = cfg["nome_campo"]
+            if c not in colonne_dati:
+                continue
             dv = rec[c] if rec is not None and pd.notna(rec[c]) else None
-            dtype = df[c].dtype
-            if pd.api.types.is_numeric_dtype(dtype):
-                try:
-                    vals[c] = st.number_input(c, value=float(dv) if dv is not None else None,
-                                              step=0.01, format="%f")
-                except:
-                    vals[c] = st.number_input(c, value=None, step=0.01, format="%f")
-            elif pd.api.types.is_datetime64_any_dtype(dtype):
-                vals[c] = st.date_input(c, value=pd.to_datetime(dv) if dv is not None else None)
+            tipo = cfg["tipo_campo"]
+            obbl = cfg["obbligatorio"]
+            etichetta = f"{c} *" if obbl else c
+            opts = cfg.get("opzioni") or []
+
+            if tipo == "number":
+                vals[c] = st.number_input(etichetta, value=float(dv) if dv is not None else None, step=0.01, format="%f", key=f"f_{c}")
+            elif tipo == "date":
+                vals[c] = st.date_input(etichetta, value=pd.to_datetime(dv) if dv is not None else None, key=f"f_{c}")
+            elif tipo == "boolean":
+                vals[c] = st.checkbox(etichetta, value=bool(dv) if dv is not None else False, key=f"f_{c}")
+            elif tipo == "single_select":
+                idx = opts.index(str(dv)) if dv is not None and str(dv) in opts else 0
+                vals[c] = st.selectbox(etichetta, opts if opts else [""], index=idx, key=f"f_{c}")
+            elif tipo == "multi_select":
+                current = str(dv).split(",") if dv else []
+                selected = st.multiselect(etichetta, opts if opts else [], default=[s for s in current if s in opts], key=f"f_{c}")
+                vals[c] = ",".join(selected)
+            elif tipo == "text_area":
+                vals[c] = st.text_area(etichetta, value=str(dv) if dv is not None else "", key=f"f_{c}")
             else:
-                vals[c] = st.text_input(c, value=str(dv) if dv is not None else "")
+                vals[c] = st.text_input(etichetta, value=str(dv) if dv is not None else "", key=f"f_{c}")
+
+            if obbl:
+                v = vals[c]
+                if v is None or (isinstance(v, str) and v.strip() == "") or (isinstance(v, float) and pd.isna(v)):
+                    errori[c] = True
+
+        if errori:
+            msg("Compila tutti i campi obbligatori (*)", "warning")
 
         ca, cb = st.columns([1, 1])
         with ca:
             lbl = "💾 Aggiungi" if is_new else "💾 Salva modifiche"
             if st.button(lbl, use_container_width=True, type="primary"):
+                if errori:
+                    st.rerun()
                 safe_vals = {}
                 for c in colonne_dati:
-                    v = vals[c]
+                    v = vals.get(c)
                     if isinstance(v, str) and v.strip() == "":
                         safe_vals[c] = None
+                    elif isinstance(v, bool):
+                        safe_vals[c] = 1 if v else 0
                     else:
                         safe_vals[c] = v
                 if is_new:
@@ -409,7 +441,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([2, 1.3, 1.3, 0.8, 0.8, 0.5])
+    tb = st.columns([2, 1.3, 1.3, 0.8, 0.8, 0.8, 0.5])
     with tb[0]:
         s = st.text_input("🔍 Cerca", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
@@ -444,6 +476,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 msg("Errore durante l'esportazione", "error")
             st.rerun()
     with tb[5]:
+        if st.button("⚙️ Campi", use_container_width=True, help="Configura campi"):
+            st.session_state.pagina = "configura_campi"
+            st.rerun()
+    with tb[6]:
         if st.button("🔄", use_container_width=True, help="Ricarica dati"):
             try:
                 buf, foglio_db = db.get_file_contenuto(fid)
@@ -525,6 +561,58 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.rerun()
     else:
         st.info("👆 Seleziona una riga per vedere le azioni")
+
+# ── CONFIGURA CAMPI ─────────────────────────────────────────────
+elif st.session_state.pagina == "configura_campi":
+    fid = st.session_state.file_id
+    if fid is None:
+        msg("Nessun file selezionato", "warning")
+        st.session_state.pagina = "dashboard"
+        st.rerun()
+
+    st.markdown(f'<div class="page-title">⚙️ Configura campi</div>', unsafe_allow_html=True)
+    if st.button("🔙 Torna al file", use_container_width=False):
+        st.session_state.pagina = "vedi_file"
+        st.rerun()
+    st.divider()
+
+    campi = db.get_campi_config(fid)
+    if not campi:
+        st.info("Nessuna configurazione trovata")
+        st.stop()
+
+    for campo in campi:
+        with st.container():
+            cols = st.columns([2, 1.5, 0.8, 1.5, 0.5])
+            with cols[0]:
+                st.markdown(f"**{campo['nome_campo']}**")
+            with cols[1]:
+                tipo = st.selectbox(
+                    "Tipo",
+                    ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"],
+                    index=["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"].index(campo["tipo_campo"]) if campo["tipo_campo"] in ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"] else 0,
+                    key=f"tipo_{campo['id']}",
+                    label_visibility="collapsed",
+                )
+            with cols[2]:
+                obbl = st.checkbox("Obbligatorio", value=campo["obbligatorio"], key=f"obbl_{campo['id']}",
+                                   label_visibility="collapsed")
+            with cols[3]:
+                if tipo in ("single_select", "multi_select"):
+                    current_opts = ", ".join(campo.get("opzioni", [])) if campo.get("opzioni") else ""
+                    opts_str = st.text_input("Opzioni (separate da virgola)", value=current_opts,
+                                             key=f"opts_{campo['id']}", label_visibility="collapsed",
+                                             placeholder="Opzione1, Opzione2, ...")
+                else:
+                    opts_str = None
+                    st.markdown("—")
+            with cols[4]:
+                if st.button("💾", key=f"save_cfg_{campo['id']}", help="Salva"):
+                    new_opzioni = [o.strip() for o in opts_str.split(",")] if opts_str and opts_str.strip() else None
+                    db.aggiorna_campo_config(campo["id"], tipo_campo=tipo, obbligatorio=obbl, opzioni=new_opzioni)
+                    msg(f"Campo '{campo['nome_campo']}' aggiornato")
+                    st.rerun()
+            st.divider()
 
 # ── GESTIONE UTENTI (admin only) ────────────────────────────────
 elif st.session_state.pagina == "utenti":
