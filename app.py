@@ -46,6 +46,8 @@ st.markdown("""
     div.stButton > button { border-radius: 8px; font-weight: 500; }
     div.stButton > button[data-kind="primary"] { background: #1E3A5F; color: white; }
     div[data-testid="stDataFrame"] { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+    div[data-testid="stVerticalBlockBorderWrapper"] > div { gap: 4px; }
+    .kanban-card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; margin: 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
 
     .user-avatar {
         width: 36px; height: 36px; border-radius: 50%; display: inline-flex;
@@ -577,76 +579,63 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         fcfg = db.get_file_config(fid)
         col_stato = fcfg.get("colonna_stato", "")
         col_titolo = fcfg.get("colonna_titolo", "carpeta")
+
         if not col_stato or col_stato not in colonne_dati:
-            st.warning("Configura la colonna 'Stato' nella pagina ⚙️ Campi → Stati")
-            st.session_state.visuale = "tabella"
-            st.rerun()
+            st.warning("⚠️ Colonna stato non configurata. Vai su **⚙️ Campi → 📋 Stati** per configurarla.")
+            if st.button("⚙️ Configura stati"):
+                st.session_state.pagina = "configura_stati"
+                st.rerun()
+            st.stop()
 
         stati = db.get_stati_config(fid)
         if not stati:
-            # auto-create from unique values
             vals = sorted(df[col_stato].dropna().unique())
-            stati = [{"id": 0, "nome": str(v), "ordine": i, "colore": "#6B7280"} for i, v in enumerate(vals)]
+            stati = [{"nome": str(v), "ordine": i, "colore": "#6B7280"} for i, v in enumerate(vals)]
             if not stati:
-                stati = [{"id": 0, "nome": "Nessuno stato", "ordine": 0, "colore": "#6B7280"}]
+                stati = [{"nome": "Nessuno stato", "ordine": 0, "colore": "#6B7280"}]
 
-        # Kanban CSS
-        st.markdown(f"""
-        <style>
-        .kanban-row {{ display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; align-items: flex-start; }}
-        .kanban-col {{ min-width: 240px; max-width: 300px; flex: 1; background: #f3f4f6; border-radius: 10px; padding: 10px; }}
-        .kanban-col h4 {{ font-size: 0.85rem; font-weight: 600; margin: 0 0 8px 0; padding: 6px 10px; border-radius: 6px; color: white; text-align: center; }}
-        .kanban-card {{ background: white; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); font-size: 0.8rem; border: 1px solid #e5e7eb; }}
-        .kanban-card-title {{ font-weight: 600; font-size: 0.85rem; color: #1E3A5F; margin-bottom: 4px; }}
-        .kanban-card-id {{ color: #9CA3AF; font-size: 0.7rem; }}
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.markdown(f'#### 📋 Kanban — {col_stato}')
-        # Link to configura stati
-        if st.button("⚙️ Configura stati", use_container_width=False):
+        st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">📋 Kanban — {col_stato}</div>', unsafe_allow_html=True)
+        if st.button("⚙️ Configura stati"):
             st.session_state.pagina = "configura_stati"
             st.rerun()
 
-        st.markdown('<div class="kanban-row">', unsafe_allow_html=True)
-        for stato in stati:
-            nome = stato["nome"]
-            colore = stato.get("colore", "#6B7280")
-            records_in_col = view_df[view_df[col_stato].astype(str) == nome]
-            with st.container():
-                st.markdown(f'<div class="kanban-col"><h4 style="background:{colore};">{nome} <span style="font-weight:400;opacity:0.8;">({len(records_in_col)})</span></h4>', unsafe_allow_html=True)
+        # Use Streamlit columns — cap at 6 for readability
+        n_stati = len(stati)
+        cols = st.columns(min(n_stati, 6))
+        for i, stato in enumerate(stati):
+            ci = i % 6
+            with cols[ci]:
+                nome = stato["nome"]
+                colore = stato.get("colore", "#6B7280")
+                records_in_col = view_df[view_df[col_stato].astype(str) == nome]
+                st.markdown(f'<div style="background:{colore};color:white;padding:6px 10px;border-radius:6px;text-align:center;font-weight:600;font-size:0.85rem;">{nome} ({len(records_in_col)})</div>', unsafe_allow_html=True)
                 for _, rec in records_in_col.iterrows():
                     rid = int(rec["id"])
-                    titolo = str(rec.get(col_titolo, "")) if col_titolo and col_titolo in rec and pd.notna(rec.get(col_titolo)) else f"Record #{rid}"
-                    st.markdown(f'<div class="kanban-card"><div class="kanban-card-title">{titolo}</div><div class="kanban-card-id">#{rid}</div></div>', unsafe_allow_html=True)
-                    # Move dropdown
-                    other_stati = [s["nome"] for s in stati if s["nome"] != nome]
-                    if other_stati:
-                        key = f"mv_{rid}_{nome.replace(' ','_')}"
-                        new_stato = st.selectbox("Sposta a", ["—"] + other_stati, key=key, label_visibility="collapsed")
-                        if new_stato and new_stato != "—":
-                            old_stato = nome
-                            # Execute transition actions
-                            trans = db.get_transizioni(fid)
-                            for t in trans:
-                                if t["stato_da"] == old_stato and t["stato_a"] == new_stato:
-                                    action = t["azione_tipo"]
-                                    col = t["colonna_destinazione"]
-                                    val = t["valore"]
-                                    if action == "set_data" and col:
-                                        from datetime import date
-                                        db.aggiorna_record(fid, rid, {col: str(date.today())})
-                                    elif action == "set_timestamp" and col:
-                                        from datetime import datetime
-                                        db.aggiorna_record(fid, rid, {col: str(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))})
-                                    elif action == "set_valore" and col and val:
-                                        db.aggiorna_record(fid, rid, {col: val})
-                            # Move the record
-                            db.aggiorna_record(fid, rid, {col_stato: new_stato})
-                            st.toast(f"📦 #{rid} → {new_stato}")
-                            st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+                    titolo = str(rec.get(col_titolo, "")) if col_titolo and col_titolo in rec and pd.notna(rec.get(col_titolo)) else f"#{rid}"
+                    with st.container():
+                        st.markdown(f'<div class="kanban-card"><span style="font-weight:600;font-size:0.85rem;color:#1E3A5F;">{titolo}</span><br><span style="color:#9CA3AF;font-size:0.7rem;">#{rid}</span></div>', unsafe_allow_html=True)
+                        other_stati = [s["nome"] for s in stati if s["nome"] != nome]
+                        if other_stati:
+                            key = f"mv_{rid}_{nome.replace(' ','_')}"
+                            new_stato = st.selectbox("", ["—"] + other_stati, key=key, label_visibility="collapsed")
+                            if new_stato and new_stato != "—":
+                                trans = db.get_transizioni(fid)
+                                for t in trans:
+                                    if t["stato_da"] == nome and t["stato_a"] == new_stato:
+                                        action = t["azione_tipo"]
+                                        col = t["colonna_destinazione"]
+                                        val = t["valore"]
+                                        if action == "set_data" and col:
+                                            from datetime import date
+                                            db.aggiorna_record(fid, rid, {col: str(date.today())})
+                                        elif action == "set_timestamp" and col:
+                                            from datetime import datetime
+                                            db.aggiorna_record(fid, rid, {col: str(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))})
+                                        elif action == "set_valore" and col and val:
+                                            db.aggiorna_record(fid, rid, {col: val})
+                                db.aggiorna_record(fid, rid, {col_stato: new_stato})
+                                st.toast(f"📦 #{rid} → {new_stato}")
+                                st.rerun()
         st.stop()
 
     # ── TABLE ──
