@@ -168,6 +168,47 @@ def elimina_sessione(sid: str):
     conn.close()
 
 
+# ── Page tokens (rotazione continua, invalidano URL condivise) ──
+
+
+def _init_page_tokens():
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS page_tokens (
+            token TEXT PRIMARY KEY,
+            sid TEXT NOT NULL,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("DELETE FROM page_tokens WHERE created < datetime('now', '-1 hour')")
+    conn.commit()
+    conn.close()
+
+
+def crea_page_token(sid: str) -> str:
+    _init_page_tokens()
+    tk = _uuid.uuid4().hex
+    conn = get_conn()
+    conn.execute("DELETE FROM page_tokens WHERE sid = ?", (sid,))
+    conn.execute("INSERT INTO page_tokens (token, sid) VALUES (?, ?)", (tk, sid))
+    conn.commit()
+    conn.close()
+    return tk
+
+
+def leggi_page_token(token: str):
+    _init_page_tokens()
+    conn = get_conn()
+    row = conn.execute("SELECT sid FROM page_tokens WHERE token = ?", (token,)).fetchone()
+    if row:
+        conn.execute("DELETE FROM page_tokens WHERE token = ?", (token,))
+        conn.commit()
+        conn.close()
+        return row["sid"]
+    conn.close()
+    return None
+
+
 def login(email: str, password: str):
     conn = get_conn()
     cur = conn.execute(
