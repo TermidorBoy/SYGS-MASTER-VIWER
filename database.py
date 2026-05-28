@@ -602,9 +602,14 @@ def init_stati_table(file_id: int):
             file_id INTEGER UNIQUE NOT NULL,
             colonna_stato TEXT DEFAULT '',
             colonna_titolo TEXT DEFAULT '',
+            colonna_data_calendario TEXT DEFAULT '',
             FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
         )
     """)
+    try:
+        conn.execute("ALTER TABLE file_config ADD COLUMN colonna_data_calendario TEXT DEFAULT ''")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -612,22 +617,22 @@ def init_stati_table(file_id: int):
 def get_file_config(file_id: int):
     init_stati_table(file_id)
     conn = get_conn()
-    row = conn.execute("SELECT colonna_stato, colonna_titolo FROM file_config WHERE file_id = ?", (file_id,)).fetchone()
+    row = conn.execute("SELECT colonna_stato, colonna_titolo, colonna_data_calendario FROM file_config WHERE file_id = ?", (file_id,)).fetchone()
     conn.close()
     if row:
         return dict(row)
-    return {"colonna_stato": "", "colonna_titolo": ""}
+    return {"colonna_stato": "", "colonna_titolo": "", "colonna_data_calendario": ""}
 
 
-def save_file_config(file_id: int, colonna_stato: str, colonna_titolo: str):
+def save_file_config(file_id: int, colonna_stato: str = "", colonna_titolo: str = "", colonna_data_calendario: str = ""):
     init_stati_table(file_id)
     conn = get_conn()
     conn.execute("""
-        INSERT INTO file_config (file_id, colonna_stato, colonna_titolo)
-        VALUES (?, ?, ?)
+        INSERT INTO file_config (file_id, colonna_stato, colonna_titolo, colonna_data_calendario)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(file_id)
-        DO UPDATE SET colonna_stato=excluded.colonna_stato, colonna_titolo=excluded.colonna_titolo
-    """, (file_id, colonna_stato, colonna_titolo))
+        DO UPDATE SET colonna_stato=excluded.colonna_stato, colonna_titolo=excluded.colonna_titolo, colonna_data_calendario=excluded.colonna_data_calendario
+    """, (file_id, colonna_stato, colonna_titolo, colonna_data_calendario))
     conn.commit()
     conn.close()
 

@@ -860,9 +860,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "configura_campi"
             st.rerun()
     with tb[6]:
-        v_label = "📋 Kanban" if st.session_state.visuale == "tabella" else "📊 Tabella"
-        if st.button(v_label, use_container_width=True, help="Cambia visuale"):
-            st.session_state.visuale = "kanban" if st.session_state.visuale == "tabella" else "tabella"
+        v_next = {"tabella": "kanban", "kanban": "calendario", "calendario": "tabella"}
+        v_lbl = {"tabella": "📋 Kanban", "kanban": "📅 Calendario", "calendario": "📊 Tabella"}
+        cur = st.session_state.visuale
+        if st.button(v_lbl.get(cur, "📊 Tabella"), use_container_width=True, help="Cambia visuale"):
+            st.session_state.visuale = v_next.get(cur, "tabella")
             st.rerun()
     with tb[7]:
         f_label = "ƒx ON" if st.session_state.formula_mode else "ƒx OFF"
@@ -995,6 +997,61 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                                     db.aggiorna_record(fid, rid, {col_stato: new_stato})
                                     st.toast(f"📦 #{rid} → {new_stato}")
                                     st.rerun()
+        st.stop()
+
+    # ── CALENDARIO ──
+    if st.session_state.visuale == "calendario":
+        fcfg = db.get_file_config(fid)
+        col_data = fcfg.get("colonna_data_calendario", "")
+        col_titolo = fcfg.get("colonna_titolo", "")
+
+        if not col_data or col_data not in colonne_dati:
+            st.warning("⚠️ Colonna data non configurata. Vai su **⚙️ Campi → 📋 Stati** per selezionare la colonna data per il calendario.")
+            st.stop()
+
+        events = []
+        for _, rec in view_df.iterrows():
+            val = rec.get(col_data)
+            if pd.notna(val):
+                try:
+                    start = str(val)[:10]
+                    titolo = str(rec.get(col_titolo, "")) if col_titolo and col_titolo in rec and pd.notna(rec.get(col_titolo)) else f"#{int(rec['id'])}"
+                    events.append({"id": str(int(rec["id"])), "title": titolo, "start": start})
+                except Exception:
+                    pass
+
+        if not events:
+            st.info("Nessun evento con data da mostrare nel calendario.")
+            st.stop()
+
+        from streamlit_calendar import calendar
+
+        cal_options = {
+            "editable": True,
+            "selectable": True,
+            "headerToolbar": {
+                "left": "today prev,next",
+                "center": "title",
+                "right": "dayGridMonth,dayGridWeek,dayGridDay",
+            },
+            "initialView": "dayGridMonth",
+            "height": 650,
+        }
+
+        cal_result = calendar(events=events, options=cal_options, key=f"cal_{fid}")
+
+        if cal_result and "eventDrop" in cal_result:
+            drop = cal_result["eventDrop"]["event"]
+            drop_tag = f"{drop['id']}_{drop['start']}"
+            if st.session_state.get("_cal_drop") != drop_tag:
+                st.session_state._cal_drop = drop_tag
+                db.aggiorna_record(fid, int(drop["id"]), {col_data: drop["start"][:10]})
+                st.toast(f"📅 #{drop['id']} spostato al {drop['start'][:10]}")
+                st.rerun()
+
+        st.divider()
+        st.caption("Trascina un evento per cambiarne la data.")
+
         st.stop()
 
     # ── TABLE ──
@@ -1253,9 +1310,12 @@ elif st.session_state.pagina == "configura_stati":
                              help="Colonna che contiene lo stato di ogni record")
     col_titolo = st.selectbox("Colonna titolo (card)", [""] + campi_disponibili,
                               index=0 if not fcfg.get("colonna_titolo") else (campi_disponibili.index(fcfg["colonna_titolo"]) + 1) if fcfg["colonna_titolo"] in campi_disponibili else 0,
-                              help="Colonna usata come titolo della card nel Kanban (es. 'carpeta')")
+                              help="Colonna usata come titolo della card nel Kanban e calendario")
+    col_data_cal = st.selectbox("Colonna data (calendario)", [""] + campi_disponibili,
+                                index=0 if not fcfg.get("colonna_data_calendario") else (campi_disponibili.index(fcfg["colonna_data_calendario"]) + 1) if fcfg["colonna_data_calendario"] in campi_disponibili else 0,
+                                help="Colonna data usata per il calendario con trascinamento")
     if st.button("💾 Salva colonne", use_container_width=False):
-        db.save_file_config(fid, col_stato, col_titolo)
+        db.save_file_config(fid, col_stato, col_titolo, col_data_cal)
         msg("✅ Colonne salvate")
         st.rerun()
 
