@@ -164,32 +164,7 @@ ADMIN_PASSWORD = "la tua password"
     st.stop()
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
-# ── Ripristina sessione da SID in URL (sopravvive a F5) ──
-if not st.session_state.utente:
-    sid = st.query_params.get("_sid")
-    if sid:
-        utente = db.leggi_sessione(sid)
-        if utente:
-            db.aggiorna_accesso_sessione(sid)
-            st.session_state.utente = utente
-            st.session_state.sid = sid
-            st.session_state.pagina = "dashboard"
-    else:
-        # Tentativo JS: se sessionStorage ha il SID, reindirizza
-        st.markdown("""
-        <script>
-        (function(){
-            var s = sessionStorage.getItem('sygs_sid');
-            if (s && !location.search.includes('_sid=')) {
-                var u = new URL(window.location);
-                u.searchParams.set('_sid', s);
-                window.location.href = u.toString();
-            }
-        })();
-        </script>
-        """, unsafe_allow_html=True)
-
-# ── Se non autenticato → login ──
+# ── Se non autenticato → login (nessuna persistenza F5) ──
 if not st.session_state.utente:
     st.session_state.pagina = "login"
 
@@ -260,7 +235,6 @@ with st.sidebar:
             sid = st.session_state.get("sid")
             if sid:
                 db.elimina_sessione(sid)
-            st.markdown("<script>sessionStorage.removeItem('sygs_sid');</script>", unsafe_allow_html=True)
             st.session_state.utente = None
             st.session_state.pagina = "login"
             st.session_state.file_id = None
@@ -511,7 +485,6 @@ if st.session_state.pagina == "login":
                 utente = db.login(email, password)
                 if utente:
                     sid = db.crea_sessione(utente)
-                    st.query_params["_sid"] = sid
                     st.session_state.utente = utente
                     st.session_state.sid = sid
                     st.session_state.pagina = "dashboard"
@@ -527,19 +500,6 @@ if st.session_state.pagina == "login":
     st.stop()
 
 db.aggiorna_accesso(st.session_state.utente["id"])
-db.aggiorna_accesso_sessione(st.session_state.sid)
-
-# ── JavaScript: salva SID in sessionStorage, rimuove _sid dall'URL ──
-st.markdown("""
-<script>
-sessionStorage.setItem('sygs_sid', '""" + st.session_state.sid + """');
-var u = new URL(window.location);
-if (u.searchParams.has('_sid')) {
-    u.searchParams.delete('_sid');
-    window.history.replaceState({}, '', u);
-}
-</script>
-""", unsafe_allow_html=True)
 
 # ── DASHBOARD ───────────────────────────────────────────────────
 if st.session_state.pagina == "dashboard":
