@@ -18,8 +18,6 @@ if _env_path.exists():
 
 
 def leggi_excel_con_formule(source, sheet=0):
-    """Legge un Excel preservando le formule come testo (=...) invece dei valori calcolati.
-    source può essere un file-like object (upload) o un percorso di file."""
     import io
     if isinstance(source, (str, Path)):
         with open(source, 'rb') as f:
@@ -30,30 +28,6 @@ def leggi_excel_con_formule(source, sheet=0):
     buf.seek(0)
     df = pd.read_excel(buf, sheet_name=sheet, engine='openpyxl')
     df = df.astype(object)
-    if df.empty:
-        return df
-    buf.seek(0)
-    wb = openpyxl.load_workbook(buf, data_only=False)
-    ws = wb.active
-    if ws.max_row < 2:
-        wb.close()
-        return df
-    headers = [cell.value for cell in ws[1]]
-    col_map = {}
-    for ci, h in enumerate(headers):
-        if h is not None and h in df.columns:
-            col_map[ci] = h
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, values_only=False):
-        excel_row = row[0].row
-        df_row = excel_row - 2
-        if df_row >= len(df):
-            break
-        for cell in row:
-            if isinstance(cell.value, str) and cell.value.startswith('='):
-                ci = cell.column - 1
-                if ci in col_map:
-                    df.at[df_row, col_map[ci]] = cell.value
-    wb.close()
     return df
 
 st.set_page_config(page_title="SYGS MASTER VIEWER", page_icon="📊", layout="wide",
