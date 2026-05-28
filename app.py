@@ -4,11 +4,26 @@ import os
 from pathlib import Path
 from datetime import datetime, date
 import openpyxl
+import streamlit.components.v1 as _components
+from streamlit.components.v1 import declare_component as _declare_component
 import database as db
 
-# ── Gestione sessione (query param F5 + server-side DB) ──
-# La URL mostra ?sid=uuid (non derivabile, non contiene dati utente)
-# Condividere la URL dà accesso temporaneo (stessa logica di un cookie "ricordami")
+# ── Componente personalizzato per leggere cookie (JS → Python) ──
+_cookie_dir = Path(__file__).parent / "cookie_reader" / "frontend"
+_cookie_reader = _declare_component("cookie_reader", path=str(_cookie_dir))
+
+def _set_cookie(name, value, max_age=604800):
+    _components.html(f"""<script>document.cookie="{name}={value};path=/;max-age={max_age};SameSite=Lax;Secure";</script>""", height=0)
+
+def _del_cookie(name):
+    _components.html(f"""<script>document.cookie="{name}=;path=/;max-age=0;SameSite=Lax;Secure";</script>""", height=0)
+
+def _get_cookie(name="sygs_sid"):
+    """Returns None before JS fires, '' if no cookie, or the cookie value."""
+    return _cookie_reader(cookie_name=name, default=None, key="sygs_cookie_reader")
+
+# Pulisce eventuali query param residui (sid, token, ecc.)
+st.query_params.clear()
 
 # ── Carica .env se esiste (per esecuzione locale) ──
 _env_path = Path(__file__).parent / ".env"
@@ -168,16 +183,18 @@ ADMIN_PASSWORD = "la tua password"
     st.stop()
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
-# ── Ripristina sessione da query param (sopravvive a F5) ──
+# ── Ripristina sessione da cookie (sopravvive a F5, invisibile nella URL) ──
 if not st.session_state.utente:
-    if "_sid" in st.query_params:
-        sid = st.query_params["_sid"]
-        if sid:
-            utente = db.leggi_sessione(sid)
-            if utente:
-                st.session_state.utente = utente
-                st.session_state.sid = sid
-                st.session_state.pagina = "dashboard"
+    sid = _get_cookie()
+    if sid is None:
+        with st.spinner("Caricamento..."):
+            st.stop()
+    elif sid:
+        utente = db.leggi_sessione(sid)
+        if utente:
+            st.session_state.utente = utente
+            st.session_state.sid = sid
+            st.session_state.pagina = "dashboard"
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
 with st.sidebar:
@@ -246,7 +263,7 @@ with st.sidebar:
             sid = st.session_state.get("sid")
             if sid:
                 db.elimina_sessione(sid)
-            st.query_params.clear()
+            _del_cookie("sygs_sid")
             st.session_state.utente = None
             st.session_state.pagina = "login"
             st.session_state.file_id = None
@@ -497,7 +514,7 @@ if st.session_state.pagina == "login":
                 utente = db.login(email, password)
                 if utente:
                     sid = db.crea_sessione(utente)
-                    st.query_params["_sid"] = sid
+                    _set_cookie("sygs_sid", sid)
                     st.session_state.utente = utente
                     st.session_state.sid = sid
                     st.session_state.pagina = "dashboard"

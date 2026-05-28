@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1/dist/streamlit-component-lib.js"></script>
+</head><body>
+<script>
+const { Streamlit } = window;
+Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, function () {
+  const args = Streamlit.args;
+  const name = args.cookie_name || 'sygs_sid';
+  const m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  Streamlit.setComponentValue(m ? m[2] : '');
+});
+Streamlit.setComponentReady();
+</script>
+</body></html>
