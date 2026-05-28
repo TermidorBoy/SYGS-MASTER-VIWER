@@ -30,7 +30,7 @@ def leggi_excel_con_formule(source, sheet=0):
     df = df.astype(object)
     return df
 
-st.set_page_config(page_title="SYGS MASTER VIEWER", page_icon="📊", layout="wide",
+st.set_page_config(page_title="SYGS MASTER VIEWER", page_icon="", layout="wide",
                    initial_sidebar_state="expanded")
 
 # ── CSS ─────────────────────────────────────────────────────────
@@ -123,14 +123,14 @@ except (KeyError, AttributeError, Exception):
 
 if not ADMIN_EMAIL or not ADMIN_PASSWORD:
     st.markdown("""<div style="max-width:600px;margin:4rem auto;padding:2rem;background:#fff3f3;border-radius:12px;border:1px solid #e74c3c;">
-<h2 style="color:#e74c3c;margin:0 0 0.5rem 0;">⚙️ Configurazione necessaria</h2>
+<h2 style="color:#e74c3c;margin:0 0 0.5rem 0;"> Configurazione necessaria</h2>
 <p style="color:#555;">Crea un file <code>.env</code> nella cartella del progetto:</p>
 <pre style="background:#f5f5f5;padding:0.8rem;border-radius:6px;font-size:0.85rem;">
 ADMIN_EMAIL = la tua email
 ADMIN_NOME = Il tuo nome
 ADMIN_PASSWORD = la tua password
 </pre>
-<p style="color:#555;">Oppure su <b>Streamlit Cloud</b> → ⚙️ Settings → Secrets:</p>
+<p style="color:#555;">Oppure su <b>Streamlit Cloud</b> →  Settings → Secrets:</p>
 <pre style="background:#f5f5f5;padding:0.8rem;border-radius:6px;font-size:0.85rem;">
 ADMIN_EMAIL = "la tua email"
 ADMIN_NOME = "Il tuo nome"
@@ -161,11 +161,11 @@ with st.sidebar:
 
         # Navigation
         nav_items = [
-            ("🏠", "Dashboard", "dashboard"),
-            ("📂", "Carica Excel", "carica"),
+            ("", "Dashboard", "dashboard"),
+            ("", "Carica Excel", "carica"),
         ]
         if u["ruolo"] == "admin":
-            nav_items.append(("👥", "Gestione Utenti", "utenti"))
+            nav_items.append(("", "Gestione Utenti", "utenti"))
 
         for icon, label, page in nav_items:
             if st.button(f"{icon}  {label}", use_container_width=True, type="secondary" if st.session_state.pagina != page else "primary"):
@@ -176,12 +176,12 @@ with st.sidebar:
         # File list con ordinamento, esportazione ed eliminazione
         files = db.file_utente(u["id"])
         if files:
-            st.markdown("**📁 File**")
+            st.markdown("**File**")
             for i, f in enumerate(files):
                 is_active = st.session_state.file_id == f["id"]
                 cols = st.columns([1.2, 3.5, 1.5, 1.5])
                 with cols[0]:
-                    st.markdown("📌" if is_active else "📊")
+                    st.markdown("" if is_active else "")
                 with cols[1]:
                     lbl = f["nome_file"]
                     if st.button(lbl, key=f"side_f_{f['id']}",
@@ -191,7 +191,7 @@ with st.sidebar:
                         st.rerun()
                 with cols[2]:
                     if i > 0:
-                        if st.button("⬆", key=f"up_{f['id']}", help="Sposta su"):
+                        if st.button("Su", key=f"up_{f['id']}", help="Sposta su"):
                             f_prev = files[i-1]
                             o_cur, o_prev = f["ordine"], f_prev["ordine"]
                             db.aggiorna_ordine_file(f["id"], o_prev)
@@ -199,7 +199,7 @@ with st.sidebar:
                             db.rinumera_ordini(u["id"])
                             st.rerun()
                 with cols[3]:
-                    if st.button("⬇", key=f"dn_{f['id']}", help="Sposta giù"):
+                    if st.button("Gi", key=f"dn_{f['id']}", help="Sposta giù"):
                         if i < len(files) - 1:
                             f_next = files[i+1]
                             o_cur, o_next = f["ordine"], f_next["ordine"]
@@ -216,12 +216,12 @@ with st.sidebar:
                     st.warning(f"Eliminare '{elim_file['nome_file']}'?")
                     blob = db.esporta_file_excel(elim_id)
                     if blob:
-                        st.download_button("📥 Scarica backup prima di eliminare",
+                        st.download_button("Scarica backup prima di eliminare",
                                            data=blob, file_name=elim_file["nome_file"],
                                            key="dl_backup", use_container_width=True)
                     col_yes, col_no = st.columns(2)
                     with col_yes:
-                        if st.button("🗑️ Elimina", use_container_width=True, type="primary"):
+                        if st.button("Elimina", use_container_width=True, type="primary"):
                             db.elimina_file(elim_id)
                             if st.session_state.file_id == elim_id:
                                 st.session_state.file_id = None
@@ -237,17 +237,17 @@ with st.sidebar:
                     st.rerun()
             else:
                 for f in files:
-                    with st.popover("⚙️", key=f"side_gear_{f['id']}"):
+                    with st.popover("Opzioni", key=f"side_gear_{f['id']}"):
                         blob = db.esporta_file_excel(f["id"])
                         if blob:
-                            st.download_button("📥 Scarica", data=blob, file_name=f["nome_file"],
+                            st.download_button("Scarica", data=blob, file_name=f["nome_file"],
                                                key=f"dl_{f['id']}", use_container_width=True)
-                        if st.button("🗑️ Elimina", key=f"del_side_{f['id']}", use_container_width=True):
+                        if st.button("Elimina", key=f"del_side_{f['id']}", use_container_width=True):
                             st.session_state.conferma_elimina = f["id"]
                             st.rerun()
 
         st.divider()
-        with st.expander("🔑 Cambia password"):
+        with st.expander(" Cambia password"):
             with st.form("cambia_mia_pw", border=False):
                 old = st.text_input("Password attuale", type="password", key="old_pw")
                 new1 = st.text_input("Nuova password", type="password", key="new_pw1")
@@ -263,7 +263,7 @@ with st.sidebar:
                     else:
                         msg("Compila tutti i campi", "warning")
         st.divider()
-        if st.button("🚪  Esci", use_container_width=True):
+        if st.button(" Esci", use_container_width=True):
             sid = st.session_state.get("sid")
             if sid:
                 db.elimina_sessione(sid)
@@ -507,7 +507,7 @@ if st.session_state.pagina == "login":
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.markdown('<div style="font-size:2.5rem;margin-bottom:0.3rem;">📊</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:2.5rem;margin-bottom:0.3rem;"></div>', unsafe_allow_html=True)
         st.markdown('<h1>SYGS MASTER VIEWER</h1>', unsafe_allow_html=True)
         st.markdown('<p class="subtitle">Gestione dati Excel multi-utente</p>', unsafe_allow_html=True)
         email = st.text_input("Email", placeholder="nome@esempio.com")
@@ -536,7 +536,7 @@ db.aggiorna_accesso(st.session_state.utente["id"])
 # ── DASHBOARD ───────────────────────────────────────────────────
 if st.session_state.pagina == "dashboard":
     u = st.session_state.utente
-    st.markdown(f'<div class="page-title">🏠 Dashboard</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="page-title">Dashboard</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="page-sub">Benvenuto, {u["nome"]}</div>', unsafe_allow_html=True)
 
     # Stats
@@ -560,7 +560,7 @@ if st.session_state.pagina == "dashboard":
     st.divider()
 
     # Online users
-    st.markdown("#### 👥 Utenti online")
+    st.markdown("####  Utenti online")
     if online:
         for ou in online:
             col_img, col_nome = st.columns([0.5, 3])
@@ -577,7 +577,7 @@ if st.session_state.pagina == "dashboard":
     st.divider()
 
     # Recent files
-    st.markdown("#### 📁 I tuoi file")
+    st.markdown("####  I tuoi file")
     if files:
         for f in files:
             cols = st.columns([2.5, 1, 1, 1.2, 0.5])
@@ -585,13 +585,13 @@ if st.session_state.pagina == "dashboard":
                 st.markdown(f"**{f['nome_file']}**")
                 st.caption(os.path.dirname(f["percorso"]))
             with cols[1]:
-                st.markdown(f"📄 {f['foglio']}")
+                st.markdown(f" {f['foglio']}")
             with cols[2]:
                 st.markdown(f"{f['righe']} righe")
             with cols[3]:
-                st.markdown(f"🕐 {f['caricato_il'][:10] if f['caricato_il'] else ''}")
+                st.markdown(f" {f['caricato_il'][:10] if f['caricato_il'] else ''}")
             with cols[4]:
-                if st.button("▶️", key=f"dash_open_{f['id']}", help="Apri"):
+                if st.button("Apri", key=f"dash_open_{f['id']}", help="Apri"):
                     st.session_state.file_id = f["id"]
                     st.session_state.pagina = "vedi_file"
                     st.rerun()
@@ -600,7 +600,7 @@ if st.session_state.pagina == "dashboard":
 
 # ── CARICA EXCEL ────────────────────────────────────────────────
 elif st.session_state.pagina == "carica":
-    st.markdown('<div class="page-title">📂 Carica file Excel</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-title">Carica file Excel</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Importa un file Excel nel database</div>', unsafe_allow_html=True)
 
     uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed")
@@ -620,7 +620,7 @@ elif st.session_state.pagina == "carica":
     if st.session_state.get("upload_pronto"):
         nome = st.session_state.ultimo_upload
         st.success(f"File selezionato: **{nome}**")
-        if st.button("📥 Carica file", use_container_width=True, type="primary"):
+        if st.button("Carica file", use_container_width=True, type="primary"):
             try:
                 import io as _io
                 contenuto = st.session_state.upload_bytes
@@ -642,9 +642,9 @@ elif st.session_state.pagina == "carica":
                     st.session_state.ultimo_upload = None
                     st.session_state.upload_bytes = None
                     if len(df) > 0:
-                        msg(f"✅ Importati {len(df)} record da '{nome}'")
+                        msg(f" Importati {len(df)} record da '{nome}'")
                     else:
-                        msg(f"✅ Schema '{nome}' creato con {len(colonne)} colonne")
+                        msg(f" Schema '{nome}' creato con {len(colonne)} colonne")
                     st.session_state.pagina = "configura_campi"
                     st.rerun()
             except Exception as e:
@@ -661,14 +661,14 @@ elif st.session_state.pagina == "carica":
             with cols[0]:
                 st.markdown(f"**{f['nome_file']}**  \n{f['percorso']}")
             with cols[1]:
-                st.markdown(f"📄 {f['foglio']}  ·  {f['righe']} righe")
+                st.markdown(f" {f['foglio']}  ·  {f['righe']} righe")
             with cols[2]:
-                if st.button("📌 Apri", key=f"carica_open_{f['id']}"):
+                if st.button("Apri", key=f"carica_open_{f['id']}"):
                     st.session_state.file_id = f["id"]
                     st.session_state.pagina = "vedi_file"
                     st.rerun()
             with cols[3]:
-                if st.button("🗑️", key=f"carica_del_{f['id']}", help="Elimina"):
+                if st.button("Elimina", key=f"carica_del_{f['id']}", help="Elimina"):
                     db.elimina_file(f["id"])
                     msg(f"File '{f['nome_file']}' rimosso")
                     st.rerun()
@@ -693,11 +693,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
     col_tit, col_back = st.columns([3, 1])
     with col_tit:
-        st.markdown(f'<div class="page-title">📊 {info["nome_file"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="page-title">{info["nome_file"]}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="page-sub">{info["percorso"]}  ·  {info["foglio"]}  ·  {info["righe"]} righe</div>',
                      unsafe_allow_html=True)
     with col_back:
-        if st.button("🏠  Dashboard", use_container_width=True):
+        if st.button(" Dashboard", use_container_width=True):
             cambia_pagina("dashboard")
 
     db.migra_tabella(fid)
@@ -723,10 +723,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "vedi_file"
             st.rerun()
         is_new = st.session_state.pagina == "aggiungi_record"
-        titolo = "➕ Nuovo record" if is_new else f"✏️ Modifica record #{st.session_state.modifica_id}"
+        titolo = " Nuovo record" if is_new else f" Modifica record #{st.session_state.modifica_id}"
         st.markdown(f"#### {titolo}")
         if st.session_state.formula_mode:
-            st.caption("💡 Scrivi `=A1+B1`, `=SUM(A1:A10)`, `=IF(A1>5,\"Sì\",\"No\")` — le formule vengono valutate alla visualizzazione")
+            st.caption(" Scrivi `=A1+B1`, `=SUM(A1:A10)`, `=IF(A1>5,\"Sì\",\"No\")` — le formule vengono valutate alla visualizzazione")
 
         campi_config = db.get_campi_config(fid)
         if not campi_config:
@@ -789,7 +789,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
         ca, cb = st.columns([1, 1])
         with ca:
-            lbl = "💾 Aggiungi" if is_new else "💾 Salva modifiche"
+            lbl = " Aggiungi" if is_new else " Salva modifiche"
             if st.button(lbl, use_container_width=True, type="primary"):
                 if errori:
                     st.rerun()
@@ -804,10 +804,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                         safe_vals[c] = v
                 if is_new:
                     db.aggiungi_record(fid, safe_vals, st.session_state.utente["id"])
-                    msg("✅ Record aggiunto")
+                    msg("Record aggiunto")
                 else:
                     db.aggiorna_record(fid, st.session_state.modifica_id, safe_vals)
-                    msg(f"✅ Record #{st.session_state.modifica_id} aggiornato")
+                    msg(f" Record #{st.session_state.modifica_id} aggiornato")
                 st.session_state.pagina = "vedi_file"
                 st.rerun()
         with cb:
@@ -826,7 +826,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.rerun()
         rec = rec_df.iloc[0]
         row_idx = df.index[df['id'] == rid][0]
-        st.markdown(f"#### 👁️ Record #{rid}")
+        st.markdown(f"####  Record #{rid}")
         for c in colonne_dati:
             v = rec[c]
             if st.session_state.formula_mode and isinstance(v, str) and v.startswith('='):
@@ -836,21 +836,21 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.divider()
         ce1, ce2, ce3 = st.columns([1, 1, 1])
         with ce1:
-            if puo_modificare and st.button("✏️ Modifica", use_container_width=True):
+            if puo_modificare and st.button("Modifica", use_container_width=True):
                 st.session_state.modifica_id = rid
                 st.session_state.pagina = "modifica_record"
                 st.rerun()
         with ce2:
-            if puo_modificare and st.button("🗑️ Elimina", use_container_width=True):
+            if puo_modificare and st.button("Elimina", use_container_width=True):
                 ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
                 if ok:
-                    msg(f"✅ Record #{rid} eliminato")
+                    msg(f" Record #{rid} eliminato")
                     st.session_state.pagina = "vedi_file"
                 else:
                     msg(err, "error")
                 st.rerun()
         with ce3:
-            if st.button("🔙 Indietro", use_container_width=True):
+            if st.button("Indietro", use_container_width=True):
                 st.session_state.pagina = "vedi_file"
                 st.rerun()
         st.stop()
@@ -858,7 +858,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     # ── TOOLBAR ──
     tb = st.columns([1.5, 1, 1, 0.7, 0.7, 0.7, 0.7, 0.5, 0.5])
     with tb[0]:
-        s = st.text_input("🔍 Cerca", value=st.session_state.ricerca,
+        s = st.text_input(" Cerca", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
         if s != st.session_state.ricerca:
             st.session_state.ricerca = s
@@ -885,23 +885,23 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.rerun()
     with tb[3]:
         if puo_modificare:
-            if st.button("➕ Nuovo", use_container_width=True):
+            if st.button("Nuovo", use_container_width=True):
                 st.session_state.pagina = "aggiungi_record"
                 st.rerun()
     with tb[4]:
-        if st.button("📥 Export", use_container_width=True, help="Esporta in Excel"):
+        if st.button("Export", use_container_width=True, help="Esporta in Excel"):
             percorso = info["percorso"]
             if db.esporta_excel(fid, percorso):
-                msg(f"✅ Dati esportati in '{percorso}'")
+                msg(f" Dati esportati in '{percorso}'")
             else:
                 msg("Errore durante l'esportazione", "error")
             st.rerun()
     with tb[5]:
-        if st.button("⚙️ Campi", use_container_width=True, help="Configura campi"):
+        if st.button("Campi", use_container_width=True, help="Configura campi"):
             st.session_state.pagina = "configura_campi"
             st.rerun()
     with tb[6]:
-        v_opts = {"📊 Tabella": "tabella", "📋 Kanban": "kanban", "📅 Calendario": "calendario", "📊 Dashboard": "dashboard"}
+        v_opts = {"Tabella": "tabella", "Kanban": "kanban", "Calendario": "calendario", "Dashboard": "dashboard"}
         cur = st.session_state.visuale
         sel = st.selectbox("Vista", list(v_opts.keys()), index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
                            label_visibility="collapsed", key="view_selector")
@@ -915,7 +915,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.formula_mode = not st.session_state.formula_mode
             st.rerun()
     with tb[8]:
-        if st.button("🔄", use_container_width=True, help="Ricarica dati"):
+        if st.button("Ricarica", use_container_width=True, help="Ricarica dati"):
             try:
                 buf, foglio_db = db.get_file_contenuto(fid)
                 if buf:
@@ -924,7 +924,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 else:
                     df_new = leggi_excel_con_formule(info["percorso"])
                 db.init_data_table(fid, df_new)
-                msg("✅ Dati ricaricati dal file Excel (formule preservate)")
+                msg("Dati ricaricati dal file Excel (formule preservate)")
             except Exception as e:
                 msg(f"Errore: {e}", "error")
             st.rerun()
@@ -956,8 +956,8 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         col_titolo = fcfg.get("colonna_titolo", "carpeta")
 
         if not col_stato or col_stato not in colonne_dati:
-            st.warning("⚠️ Colonna stato non configurata. Vai su **⚙️ Campi → 📋 Stati** per configurarla.")
-            if st.button("⚙️ Configura stati"):
+            st.warning("Colonna stato non configurata. Vai su ** Campi →  Stati** per configurarla.")
+            if st.button("Configura stati"):
                 st.session_state.pagina = "configura_stati"
                 st.rerun()
             st.stop()
@@ -972,12 +972,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             if not stati:
                 stati = [{"nome": "Nessuno stato", "ordine": 0, "colore": "#6B7280", "mostra_kanban": True}]
 
-        st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">📋 Kanban — {col_stato}</div>', unsafe_allow_html=True)
-        if st.button("⚙️ Configura stati"):
+        st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">Kanban — {col_stato}</div>', unsafe_allow_html=True)
+        if st.button("Configura stati"):
             st.session_state.pagina = "configura_stati"
             st.rerun()
 
-        # Kanban columns — reorderable via ◀ ▶ buttons
+        # Kanban columns — reorderable via   buttons
         n_stati = len(stati)
         MAX_COLS = 6
         for batch_start in range(0, n_stati, MAX_COLS):
@@ -994,7 +994,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                     hc = st.columns([0.1, 1, 0.1])
                     with hc[0]:
                         if global_idx > 0:
-                            if st.button("◀", key=f"kl_{global_idx}", help=f"Sposta {nome} a sinistra"):
+                            if st.button("<-", key=f"kl_{global_idx}", help=f"Sposta {nome} a sinistra"):
                                 stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280"), "mostra_kanban": s.get("mostra_kanban", True)} for s in stati]
                                 prev = stati_list[global_idx - 1]
                                 stati_list[global_idx - 1], stati_list[global_idx] = stati_list[global_idx], prev
@@ -1004,7 +1004,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                         st.markdown(f'<div style="background:{colore};color:white;padding:6px;border-radius:6px;text-align:center;font-weight:600;font-size:0.8rem;">{nome} <span style="font-weight:400;">({len(records_in_col)})</span></div>', unsafe_allow_html=True)
                     with hc[2]:
                         if global_idx < n_stati - 1:
-                            if st.button("▶", key=f"kr_{global_idx}", help=f"Sposta {nome} a destra"):
+                            if st.button("->", key=f"kr_{global_idx}", help=f"Sposta {nome} a destra"):
                                 stati_list = [{"nome": s["nome"], "colore": s.get("colore", "#6B7280"), "mostra_kanban": s.get("mostra_kanban", True)} for s in stati]
                                 nxt = stati_list[global_idx + 1]
                                 stati_list[global_idx], stati_list[global_idx + 1] = nxt, stati_list[global_idx]
@@ -1037,7 +1037,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                                             elif action == "set_valore" and col and val:
                                                 db.aggiorna_record(fid, rid, {col: val})
                                     db.aggiorna_record(fid, rid, {col_stato: new_stato})
-                                    st.toast(f"📦 #{rid} → {new_stato}")
+                                    st.toast(f" #{rid} → {new_stato}")
                                     st.rerun()
         st.stop()
 
@@ -1048,7 +1048,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         col_titolo = fcfg.get("colonna_titolo", "")
 
         if not col_data or col_data not in colonne_dati:
-            st.warning("⚠️ Colonna data non configurata. Vai su **⚙️ Campi → 📋 Stati** per selezionare la colonna data per il calendario.")
+            st.warning("Colonna data non configurata. Vai su ** Campi →  Stati** per selezionare la colonna data per il calendario.")
             st.stop()
 
         oggi = date.today()
@@ -1065,7 +1065,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                             ev["backgroundColor"] = "#EF4444"
                             ev["borderColor"] = "#DC2626"
                             ev["textColor"] = "#FFFFFF"
-                            ev["title"] = "⚠ " + titolo
+                            ev["title"] = " " + titolo
                     except Exception:
                         pass
                     events.append(ev)
@@ -1098,7 +1098,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             if st.session_state.get("_cal_drop") != drop_tag:
                 st.session_state._cal_drop = drop_tag
                 db.aggiorna_record(fid, int(drop["id"]), {col_data: drop["start"][:10]})
-                st.toast(f"📅 #{drop['id']} spostato al {drop['start'][:10]}")
+                st.toast(f" #{drop['id']} spostato al {drop['start'][:10]}")
                 st.rerun()
 
         st.divider()
@@ -1144,37 +1144,37 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
             ac1, ac2, ac3 = st.columns([1, 1, 8])
             with ac1:
-                if st.button("👁️ Vedi", use_container_width=True):
+                if st.button("Vedi", use_container_width=True):
                     st.session_state.vedi_id = rid
                     st.session_state.pagina = "dettaglio_record"
                     st.rerun()
             with ac2:
-                if puo_modificare and st.button("✏️ Modifica", use_container_width=True):
+                if puo_modificare and st.button("Modifica", use_container_width=True):
                     st.session_state.modifica_id = rid
                     st.session_state.pagina = "modifica_record"
                     st.rerun()
             with ac3:
-                if puo_modificare and st.button("🗑️ Elimina", use_container_width=True):
+                if puo_modificare and st.button("Elimina", use_container_width=True):
                     ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
                     if ok:
-                        msg(f"✅ Record #{rid} eliminato")
+                        msg(f" Record #{rid} eliminato")
                     else:
                         msg(err, "error")
                     st.rerun()
         else:
-            st.info("👆 Seleziona una riga per vedere le azioni")
+            st.info("Seleziona una riga per vedere le azioni")
 
     # ── DASHBOARD ───────────────────────────────────────────────────
     if st.session_state.visuale == "dashboard":
         fcfg = db.get_file_config(fid)
         widgets = db.get_dashboard_config(fid)
         if not widgets:
-            st.info("📊 Nessun widget configurato. Vai su **⚙️ Campi → 📊 Dashboard** per aggiungerne.")
-            if st.button("⚙️ Configura dashboard"):
+            st.info("Nessun widget configurato. Vai su ** Campi →  Dashboard** per aggiungerne.")
+            if st.button("Configura dashboard"):
                 st.session_state.pagina = "configura_dashboard"
                 st.rerun()
             st.stop()
-        st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">📊 Dashboard</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">Dashboard</div>', unsafe_allow_html=True)
         for i in range(0, len(widgets), 2):
             row_w = widgets[i:i+2]
             cols = st.columns(len(row_w))
@@ -1236,30 +1236,30 @@ elif st.session_state.pagina == "configura_campi":
     if "modifiche_pendenti" not in st.session_state:
         st.session_state.modifiche_pendenti = []
 
-    st.markdown(f'<div class="page-title">⚙️ Configura campi</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="page-title">Configura campi</div>', unsafe_allow_html=True)
     col_back, col_stati, col_dash, col_add = st.columns([1, 1, 1, 2])
     with col_back:
-        if st.button("🔙 Torna al file", use_container_width=False):
+        if st.button("Torna al file", use_container_width=False):
             st.session_state.modifiche_pendenti = []
             st.session_state.pagina = "vedi_file"
             st.rerun()
     with col_stati:
-        if st.button("📋 Stati", use_container_width=False, help="Configura stati Kanban"):
+        if st.button("Stati", use_container_width=False, help="Configura stati Kanban"):
             st.session_state.pagina = "configura_stati"
             st.rerun()
     with col_dash:
-        if st.button("📊 Dashboard", use_container_width=False, help="Configura widget dashboard"):
+        if st.button("Dashboard", use_container_width=False, help="Configura widget dashboard"):
             st.session_state.pagina = "configura_dashboard"
             st.rerun()
     with col_add:
-        with st.expander("➕ Aggiungi colonna"):
+        with st.expander("Aggiungi colonna"):
             with st.form("nuova_colonna", border=False):
                 c_nome = st.text_input("Nome colonna", placeholder="Nuovo campo")
                 c_tipo = st.selectbox("Tipo", ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"])
-                if st.form_submit_button("➕ Accoda", use_container_width=True):
+                if st.form_submit_button("Accoda", use_container_width=True):
                     if c_nome.strip():
                         st.session_state.modifiche_pendenti.append({"tipo": "aggiungi", "nome": c_nome.strip(), "tipo_campo": c_tipo})
-                        st.markdown(f'<span style="color:#10B981;">✅ "{c_nome.strip()}" in coda</span>', unsafe_allow_html=True)
+                        st.markdown(f'<span style="color:#10B981;"> "{c_nome.strip()}" in coda</span>', unsafe_allow_html=True)
                     else:
                         st.markdown(f'<span style="color:#EF4444;">Inserisci un nome</span>', unsafe_allow_html=True)
     st.divider()
@@ -1281,22 +1281,22 @@ elif st.session_state.pagina == "configura_campi":
         n_queue = sum(1 for m in pendenti if m["tipo"] != "elimina")
         n_del = sum(1 for m in pendenti if m["tipo"] == "elimina")
         with st.container():
-            st.markdown(f"#### 📋 Modifiche in coda ({len(pendenti)})")
+            st.markdown(f"####  Modifiche in coda ({len(pendenti)})")
             for i, m in enumerate(pendenti):
                 if m["tipo"] == "aggiorna":
-                    label = f"✏️ **{m['campo_old']}** — tipo: `{m['tipo_campo']}`, obbl: {'✓' if m['obbl'] else '✗'}, form: {'✓' if m['mostra'] else '✗'}"
+                    label = f" **{m['campo_old']}** — tipo: `{m['tipo_campo']}`, obbl: {'' if m['obbl'] else ''}, form: {'' if m['mostra'] else ''}"
                 elif m["tipo"] == "rinomina":
-                    label = f"🔤 **{m['vecchio']}** → **{m['nuovo']}**"
+                    label = f" **{m['vecchio']}** → **{m['nuovo']}**"
                 elif m["tipo"] == "elimina":
-                    label = f"🗑️ **{m['nome']}**"
+                    label = f" **{m['nome']}**"
                 elif m["tipo"] == "aggiungi":
-                    label = f"➕ **{m['nome']}** (`{m['tipo_campo']}`)"
+                    label = f" **{m['nome']}** (`{m['tipo_campo']}`)"
                 else:
                     label = str(m)
                 st.markdown(f"- {label}")
             ca1, ca2 = st.columns([1, 1])
             with ca1:
-                if st.button("✅ Applica tutte", use_container_width=True, type="primary"):
+                if st.button("Applica tutte", use_container_width=True, type="primary"):
                     for m in pendenti:
                         try:
                             if m["tipo"] == "aggiorna":
@@ -1310,10 +1310,10 @@ elif st.session_state.pagina == "configura_campi":
                         except Exception:
                             pass
                     st.session_state.modifiche_pendenti = []
-                    msg("✅ Modifiche applicate")
+                    msg("Modifiche applicate")
                     st.rerun()
             with ca2:
-                if st.button("🗑️ Annulla tutto", use_container_width=True):
+                if st.button("Annulla tutto", use_container_width=True):
                     st.session_state.modifiche_pendenti = []
                     st.rerun()
         st.divider()
@@ -1365,7 +1365,7 @@ elif st.session_state.pagina == "configura_campi":
                                              key=f"def_{campo['id']}", label_visibility="collapsed",
                                              placeholder="Valore default")
             with cols[5]:
-                if st.button("📋", key=f"queue_{campo['id']}", help="Accoda modifica"):
+                if st.button("Accoda", key=f"queue_{campo['id']}", help="Accoda modifica"):
                     new_opzioni = None
                     new_default = None
                     if is_select:
@@ -1391,13 +1391,13 @@ elif st.session_state.pagina == "configura_campi":
                             "tipo": "rinomina", "config_id": campo["id"],
                             "vecchio": campo["nome_campo"], "nuovo": nuovo_nome.strip(),
                         })
-                    st.toast(f"📋 '{campo['nome_campo']}' accodato ({len(st.session_state.modifiche_pendenti)})")
+                    st.toast(f" '{campo['nome_campo']}' accodato ({len(st.session_state.modifiche_pendenti)})")
             with cols[6]:
-                if st.button("🗑️", key=f"del_cfg_{campo['id']}", help="Elimina"):
+                if st.button("Elimina", key=f"del_cfg_{campo['id']}", help="Elimina"):
                     st.session_state.modifiche_pendenti.append({
                         "tipo": "elimina", "config_id": campo["id"], "nome": campo["nome_campo"],
                     })
-                    st.toast(f"🗑️ '{campo['nome_campo']}' in coda per eliminazione")
+                    st.toast(f" '{campo['nome_campo']}' in coda per eliminazione")
             st.divider()
 
 # ── CONFIGURA DASHBOARD ─────────────────────────────────────────
@@ -1409,24 +1409,24 @@ elif st.session_state.pagina == "configura_dashboard":
         st.rerun()
     df_cfg = db.carica_dati(fid)
     colonne_dati = [c for c in df_cfg.columns if c not in ("id", "creato_da", "creato_il")] if df_cfg is not None else []
-    st.markdown(f'<div class="page-title">📊 Configura Dashboard</div>', unsafe_allow_html=True)
-    if st.button("🔙 Torna al file"):
+    st.markdown(f'<div class="page-title">Configura Dashboard</div>', unsafe_allow_html=True)
+    if st.button("Torna al file"):
         st.session_state.pagina = "vedi_file"
         st.rerun()
-    with st.expander("➕ Aggiungi widget", expanded=True):
+    with st.expander("Aggiungi widget", expanded=True):
         with st.form("nuovo_widget", border=False):
             tipo = st.selectbox("Tipo", ["metric", "counter", "bar", "line"])
             colonna = st.selectbox("Colonna dati", [""] + colonne_dati) if colonne_dati else st.text_input("Colonna")
             gruppo = st.selectbox("Colonna raggruppamento (opzionale)", [""] + colonne_dati, help="Per grafici a barre/linee") if colonne_dati else st.text_input("Colonna raggruppamento")
             funzione = st.selectbox("Funzione", ["count", "sum", "avg", "min", "max"], help="Solo per widget metric")
             etichetta = st.text_input("Etichetta", placeholder="Es: Totale vendite")
-            if st.form_submit_button("➕ Aggiungi"):
+            if st.form_submit_button("Aggiungi"):
                 if colonna:
                     w = {"tipo": tipo, "colonna": colonna, "colonna_gruppo": gruppo if gruppo else "", "funzione": funzione, "etichetta": etichetta or colonna}
                     widgets = db.get_dashboard_config(fid)
                     widgets.append(w)
                     db.save_dashboard_config(fid, widgets)
-                    msg("✅ Widget aggiunto")
+                    msg("Widget aggiunto")
                     st.rerun()
                 else:
                     msg("Seleziona una colonna", "warning")
@@ -1441,8 +1441,8 @@ elif st.session_state.pagina == "configura_dashboard":
             with cols[2]: st.caption(f"Colonna: {w['colonna']}")
             with cols[3]: st.caption(f"Gruppo: {w.get('colonna_gruppo', '—')} / Funz: {w.get('funzione', 'count')}")
             with cols[4]:
-                up = i > 0 and st.button("⬆", key=f"dw_up_{i}")
-                dn = i < len(widgets) - 1 and st.button("⬇", key=f"dw_dn_{i}")
+                up = i > 0 and st.button("Su", key=f"dw_up_{i}")
+                dn = i < len(widgets) - 1 and st.button("Gi", key=f"dw_dn_{i}")
                 if up:
                     widgets[i-1], widgets[i] = widgets[i], widgets[i-1]
                     db.save_dashboard_config(fid, widgets)
@@ -1452,7 +1452,7 @@ elif st.session_state.pagina == "configura_dashboard":
                     db.save_dashboard_config(fid, widgets)
                     st.rerun()
             with cols[5]:
-                if st.button("🗑️", key=f"dw_del_{i}"):
+                if st.button("Elimina", key=f"dw_del_{i}"):
                     widgets.pop(i)
                     db.save_dashboard_config(fid, widgets)
                     st.rerun()
@@ -1467,11 +1467,11 @@ elif st.session_state.pagina == "configura_stati":
         st.session_state.pagina = "dashboard"
         st.rerun()
 
-    st.markdown(f'<div class="page-title">📋 Configura stati</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="page-title">Configura stati</div>', unsafe_allow_html=True)
 
     col_back, _ = st.columns([1, 3])
     with col_back:
-        if st.button("🔙 Torna al file", use_container_width=False):
+        if st.button("Torna al file", use_container_width=False):
             st.session_state.pagina = "vedi_file"
             st.rerun()
     st.divider()
@@ -1491,9 +1491,9 @@ elif st.session_state.pagina == "configura_stati":
     col_data_cal = st.selectbox("Colonna data (calendario)", [""] + campi_disponibili,
                                 index=0 if not fcfg.get("colonna_data_calendario") else (campi_disponibili.index(fcfg["colonna_data_calendario"]) + 1) if fcfg["colonna_data_calendario"] in campi_disponibili else 0,
                                 help="Colonna data usata per il calendario con trascinamento")
-    if st.button("💾 Salva colonne", use_container_width=False):
+    if st.button("Salva colonne", use_container_width=False):
         db.save_file_config(fid, col_stato, col_titolo, col_data_cal)
-        msg("✅ Colonne salvate")
+        msg("Colonne salvate")
         st.rerun()
 
     st.divider()
@@ -1531,16 +1531,16 @@ elif st.session_state.pagina == "configura_stati":
                 mostra_s = st.checkbox("Kanban", value=default_mostra, key=f"st_mostra_{i}", label_visibility="collapsed", help="Mostra in Kanban")
             if nome_s and nome_s.strip():
                 nuovi_stati.append({"nome": nome_s.strip(), "colore": colore_s, "mostra_kanban": mostra_s})
-        if st.form_submit_button("💾 Salva stati", use_container_width=True, type="primary"):
+        if st.form_submit_button("Salva stati", use_container_width=True, type="primary"):
             if nuovi_stati:
                 db.save_stati_list(fid, nuovi_stati)
-                msg(f"✅ {len(nuovi_stati)} stati salvati")
+                msg(f" {len(nuovi_stati)} stati salvati")
                 st.rerun()
             else:
                 msg("Inserisci almeno uno stato", "warning")
 
     st.divider()
-    st.markdown("#### ⚡ Transizioni (azioni al cambio stato)")
+    st.markdown("####  Transizioni (azioni al cambio stato)")
     st.caption("Esempio: quando sposti da 'Da iniziare' a 'Pasc evaso', imposta la data odierna nella colonna 'Data inizio'")
 
     trans = db.get_transizioni(fid)
@@ -1561,10 +1561,10 @@ elif st.session_state.pagina == "configura_stati":
         else:
             ac = ""
             av = ""
-        if st.form_submit_button("➕ Aggiungi transizione", use_container_width=True, type="primary"):
+        if st.form_submit_button("Aggiungi transizione", use_container_width=True, type="primary"):
             if td and ta and azione and ac:
                 db.save_transizione(fid, td, ta, azione, ac, av)
-                msg(f"✅ Transizione: {td} → {ta}")
+                msg(f" Transizione: {td} → {ta}")
                 st.rerun()
             else:
                 msg("Compila Da, A, Azione e Colonna", "warning")
@@ -1574,12 +1574,12 @@ elif st.session_state.pagina == "configura_stati":
         for t in trans:
             ct1, ct2, ct3 = st.columns([2, 3, 0.5])
             with ct1:
-                az_label = {"set_data": "📅 Data", "set_timestamp": "⏰ Timestamp", "set_valore": "📝 Valore"}.get(t["azione_tipo"], t["azione_tipo"])
+                az_label = {"set_data": " Data", "set_timestamp": " Timestamp", "set_valore": " Valore"}.get(t["azione_tipo"], t["azione_tipo"])
                 st.markdown(f"**{t['stato_da']}** → **{t['stato_a']}**: {az_label} in `{t['colonna_destinazione']}`" + (f" = '{t['valore']}'" if t['valore'] else ""))
             with ct2:
                 st.caption(f"id: {t['id']}")
             with ct3:
-                if st.button("🗑️", key=f"del_trans_{t['id']}", help="Elimina transizione"):
+                if st.button("Elimina", key=f"del_trans_{t['id']}", help="Elimina transizione"):
                     db.elimina_transizione(t["id"])
                     msg("Transizione eliminata")
                     st.rerun()
@@ -1592,10 +1592,10 @@ elif st.session_state.pagina == "utenti":
         msg("Accesso non autorizzato", "error")
         cambia_pagina("dashboard")
 
-    st.markdown('<div class="page-title">👥 Gestione Utenti</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-title">Gestione Utenti</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Crea, modifica password e assegna permessi file</div>', unsafe_allow_html=True)
 
-    with st.expander("➕ Crea nuovo utente", expanded=False):
+    with st.expander("Crea nuovo utente", expanded=False):
         with st.form("nuovo_utente"):
             col1, col2 = st.columns(2)
             with col1:
@@ -1674,7 +1674,7 @@ elif st.session_state.pagina == "utenti":
                         msg(f"Permesso rimosso per {ut['nome']} su {f['nome_file']}")
                         st.rerun()
             st.divider()
-            if st.button(f"🗑️ Elimina utente {ut['nome']}", key=f"del_user_{ut['id']}", use_container_width=True):
+            if st.button(f" Elimina utente {ut['nome']}", key=f"del_user_{ut['id']}", use_container_width=True):
                 db.elimina_utente(ut["id"])
                 msg(f"Utente {ut['nome']} eliminato")
                 st.rerun()

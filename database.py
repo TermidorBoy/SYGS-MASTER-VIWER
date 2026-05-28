@@ -735,15 +735,29 @@ def get_file_config(file_id: int):
     return {"colonna_stato": "", "colonna_titolo": "", "colonna_data_calendario": "", "dashboard_config": "[]"}
 
 
-def save_file_config(file_id: int, colonna_stato: str = "", colonna_titolo: str = "", colonna_data_calendario: str = "", dashboard_config: str = "[]"):
+def save_file_config(file_id: int, colonna_stato: str | None = None, colonna_titolo: str | None = None, colonna_data_calendario: str | None = None, dashboard_config: str | None = None):
     init_stati_table(file_id)
     conn = get_conn()
+    # read existing row to avoid overwriting unset fields with defaults
+    existing = conn.execute("SELECT * FROM file_config WHERE file_id = ?", (file_id,)).fetchone()
+    if existing:
+        cur = dict(existing)
+    else:
+        cur = {"colonna_stato": "", "colonna_titolo": "", "colonna_data_calendario": "", "dashboard_config": "[]"}
+    if colonna_stato is not None:
+        cur["colonna_stato"] = colonna_stato
+    if colonna_titolo is not None:
+        cur["colonna_titolo"] = colonna_titolo
+    if colonna_data_calendario is not None:
+        cur["colonna_data_calendario"] = colonna_data_calendario
+    if dashboard_config is not None:
+        cur["dashboard_config"] = dashboard_config
     conn.execute("""
         INSERT INTO file_config (file_id, colonna_stato, colonna_titolo, colonna_data_calendario, dashboard_config)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(file_id)
         DO UPDATE SET colonna_stato=excluded.colonna_stato, colonna_titolo=excluded.colonna_titolo, colonna_data_calendario=excluded.colonna_data_calendario, dashboard_config=excluded.dashboard_config
-    """, (file_id, colonna_stato, colonna_titolo, colonna_data_calendario, dashboard_config))
+    """, (file_id, cur["colonna_stato"], cur["colonna_titolo"], cur["colonna_data_calendario"], cur["dashboard_config"]))
     conn.commit()
     conn.close()
 
