@@ -801,7 +801,32 @@ def init_data_table_vuoto(file_id: int, colonne: list) -> list:
     return safe_list
 
 
-def migra_tabella(file_id: int):
+def ricrea_tabella_da_config(file_id: int) -> list:
+    """Ricrea la tabella dati dal campi_config (fallback se la tabella è assente)."""
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    campi = conn.execute("SELECT nome_campo, tipo_campo FROM campi_config WHERE file_id = ? ORDER BY ordine", (file_id,)).fetchall()
+    if not campi:
+        conn.close()
+        return []
+    safe_cols = []
+    cols_def = []
+    for r in campi:
+        n = r["nome_campo"]
+        import re as _re
+        safe = n.strip().replace(" ", "_")
+        safe = _re.sub(r'[^a-zA-Z0-9_]', '', safe)
+        if not safe or safe[0].isdigit():
+            safe = 'col_' + safe
+        safe = safe or 'colonna'
+        safe_cols.append(safe)
+        sql_type = "REAL" if r["tipo_campo"] == "number" else "TEXT"
+        cols_def.append(f'"{safe}" {sql_type}')
+    conn.execute(f"DROP TABLE IF EXISTS [{table}]")
+    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
+    conn.commit()
+    conn.close()
+    return safe_cols
     conn = get_conn()
     table = f"dati_{file_id}"
     for col in ["creato_da", "creato_il"]:

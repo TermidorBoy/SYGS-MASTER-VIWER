@@ -761,6 +761,9 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     db.migra_tabella(fid)
     df = db.carica_dati(fid)
     if df is None:
+        db.ricrea_tabella_da_config(fid)
+        df = db.carica_dati(fid)
+    if df is None:
         st.error("Errore nel caricamento dei dati")
         st.stop()
 
