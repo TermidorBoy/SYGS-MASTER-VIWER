@@ -95,14 +95,25 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
             sid TEXT PRIMARY KEY,
             dati TEXT NOT NULL,
             created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ultimo_accesso TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires TIMESTAMP
         )
     """)
-    conn.execute("DELETE FROM sessioni WHERE expires < datetime('now')")
+    conn.execute("DELETE FROM sessioni WHERE expires < datetime('now') OR ultimo_accesso < datetime('now', '-1 day')")
+    # Migrazione per DB vecchi senza colonna ultimo_accesso
     try:
-        conn.execute("ALTER TABLE sessioni ADD COLUMN ultimo_accesso TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        conn.execute("SELECT ultimo_accesso FROM sessioni LIMIT 1")
     except Exception:
-        pass
+        conn.execute("DROP TABLE IF EXISTS sessioni")
+        conn.execute("""
+            CREATE TABLE sessioni (
+                sid TEXT PRIMARY KEY,
+                dati TEXT NOT NULL,
+                created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ultimo_accesso TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires TIMESTAMP
+            )
+        """)
     admin_email = admin_email or os.environ.get("ADMIN_EMAIL")
     admin_nome = admin_nome or os.environ.get("ADMIN_NOME")
     admin_pw = admin_password or os.environ.get("ADMIN_PASSWORD")
