@@ -99,8 +99,7 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
             expires TIMESTAMP
         )
     """)
-    conn.execute("DELETE FROM sessioni WHERE expires < datetime('now') OR ultimo_accesso < datetime('now', '-1 day')")
-    # Migrazione per DB vecchi senza colonna ultimo_accesso
+    # Migrazione per DB vecchi senza colonna ultimo_accesso (PRIMA del DELETE)
     try:
         conn.execute("SELECT ultimo_accesso FROM sessioni LIMIT 1")
     except Exception:
@@ -114,6 +113,7 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
                 expires TIMESTAMP
             )
         """)
+    conn.execute("DELETE FROM sessioni WHERE expires < datetime('now') OR ultimo_accesso < datetime('now', '-1 day')")
     admin_email = admin_email or os.environ.get("ADMIN_EMAIL")
     admin_nome = admin_nome or os.environ.get("ADMIN_NOME")
     admin_pw = admin_password or os.environ.get("ADMIN_PASSWORD")
