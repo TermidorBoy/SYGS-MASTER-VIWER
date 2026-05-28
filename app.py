@@ -629,33 +629,53 @@ elif st.session_state.pagina == "carica":
     st.markdown('<div class="page-sub">Importa un file Excel nel database</div>', unsafe_allow_html=True)
 
     uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed")
+
     if uploaded:
-        try:
-            import io as _io
-            contenuto = uploaded.read()
-            buf = _io.BytesIO(contenuto)
-            df = leggi_excel_con_formule(buf)
-            nome = uploaded.name
-            colonne = list(df.columns) if not df.empty else []
-            if not colonne:
-                msg("Il file non ha colonne", "error")
-            else:
-                fid = db.salva_file_excel(st.session_state.utente["id"], nome,
-                                          "Sheet1", colonne, len(df), contenuto)
-                if not df.empty:
-                    db.init_data_table(fid, df)
+        nome = uploaded.name
+        if nome != st.session_state.get("ultimo_upload"):
+            st.session_state.ultimo_upload = nome
+            st.session_state.upload_bytes = uploaded.read()
+            st.session_state.upload_pronto = True
+            st.rerun()
+    else:
+        st.session_state.upload_pronto = False
+        st.session_state.ultimo_upload = None
+        st.session_state.upload_bytes = None
+
+    if st.session_state.get("upload_pronto"):
+        nome = st.session_state.ultimo_upload
+        st.success(f"File selezionato: **{nome}**")
+        if st.button("📥 Carica file", use_container_width=True, type="primary"):
+            try:
+                import io as _io
+                contenuto = st.session_state.upload_bytes
+                buf = _io.BytesIO(contenuto)
+                df = leggi_excel_con_formule(buf)
+                colonne = list(df.columns) if not df.empty else []
+                if not colonne:
+                    msg("Il file non ha colonne", "error")
                 else:
-                    db.init_data_table_vuoto(fid, colonne)
-                db.init_campi_config(fid, colonne)
-                st.session_state.file_id = fid
-                if len(df) > 0:
-                    msg(f"✅ Importati {len(df)} record da '{nome}'")
-                else:
-                    msg(f"✅ Schema '{nome}' creato con {len(colonne)} colonne")
-                st.session_state.pagina = "configura_campi"
+                    fid = db.salva_file_excel(st.session_state.utente["id"], nome,
+                                              "Sheet1", colonne, len(df), contenuto)
+                    if not df.empty:
+                        db.init_data_table(fid, df)
+                    else:
+                        db.init_data_table_vuoto(fid, colonne)
+                    db.init_campi_config(fid, colonne)
+                    st.session_state.file_id = fid
+                    st.session_state.upload_pronto = False
+                    st.session_state.ultimo_upload = None
+                    st.session_state.upload_bytes = None
+                    if len(df) > 0:
+                        msg(f"✅ Importati {len(df)} record da '{nome}'")
+                    else:
+                        msg(f"✅ Schema '{nome}' creato con {len(colonne)} colonne")
+                    st.session_state.pagina = "configura_campi"
+                    st.rerun()
+            except Exception as e:
+                msg(f"Errore: {e}", "error")
+                st.session_state.upload_pronto = False
                 st.rerun()
-        except Exception as e:
-            msg(f"Errore: {e}", "error")
 
     st.divider()
     st.markdown("#### File caricati in precedenza")
