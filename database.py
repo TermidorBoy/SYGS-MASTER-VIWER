@@ -827,6 +827,9 @@ def ricrea_tabella_da_config(file_id: int) -> list:
     conn.commit()
     conn.close()
     return safe_cols
+
+
+def migra_tabella(file_id: int):
     conn = get_conn()
     table = f"dati_{file_id}"
     for col in ["creato_da", "creato_il"]:
