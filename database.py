@@ -89,11 +89,14 @@ def init_db():
             FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
         );
     """)
-    cur = conn.execute("SELECT id FROM utenti WHERE email = ?", ("s.galvis@setinstudio.com",))
+    admin_email = os.environ.get("ADMIN_EMAIL", "s.galvis@setinstudio.com")
+    admin_nome = os.environ.get("ADMIN_NOME", "Sergio Galvis")
+    admin_pw = os.environ.get("ADMIN_PASSWORD", "2385")
+    cur = conn.execute("SELECT id FROM utenti WHERE email = ?", (admin_email,))
     if not cur.fetchone():
         conn.execute(
             "INSERT INTO utenti (email, nome, password, ruolo) VALUES (?, ?, ?, ?)",
-            ("s.galvis@setinstudio.com", "Sergio Galvis", hash_pw("2385"), "admin"),
+            (admin_email, admin_nome, hash_pw(admin_pw), "admin"),
         )
     conn.commit()
     conn.close()

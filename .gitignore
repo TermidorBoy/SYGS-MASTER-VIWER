@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 data/*.db
 .env
+.secrets.toml
+.streamlit/secrets.toml

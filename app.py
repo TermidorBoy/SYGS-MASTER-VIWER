@@ -1344,7 +1344,8 @@ elif st.session_state.pagina == "utenti":
     utenti = db.lista_utenti()
     for ut in utenti:
         with st.expander(f"**{ut['nome']}** — {ut['email']} (`{ut['ruolo']}`)", expanded=False):
-            if ut["email"] == "s.galvis@setinstudio.com":
+            admin_email = os.environ.get("ADMIN_EMAIL", "s.galvis@setinstudio.com")
+            if ut["email"] == admin_email:
                 st.caption("Admin principale — non modificabile")
                 continue
             col_pw, col_file = st.columns([1, 2])
