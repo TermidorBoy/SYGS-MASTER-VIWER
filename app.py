@@ -1107,61 +1107,62 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TABLE ──
-    display_cols = colonne_dati
-    if st.session_state.formula_mode:
-        view_df_display = aplicar_formulas(view_df, display_cols)
-    else:
-        view_df_display = view_df
-    ev = st.dataframe(
-        view_df_display[["id"] + display_cols],
-        use_container_width=True,
-        hide_index=True,
-        column_config={"id": "ID"},
-        on_select="rerun",
-        selection_mode="single-row",
-    )
-
-    # ── ACTIONS ──
-    if ev.selection and ev.selection.rows:
-        sel_idx = view_df.index[ev.selection.rows[0]]
-        sel = view_df.loc[sel_idx]
-        rid = int(sel["id"])
-
-        st.divider()
-        st.markdown(f"**Record #{rid}** selezionato")
-        # preview (show computed values if formula mode is on)
+    if st.session_state.visuale == "tabella":
+        display_cols = colonne_dati
         if st.session_state.formula_mode:
-            sel_display = aplicar_formulas(pd.DataFrame([sel]), display_cols).iloc[0]
+            view_df_display = aplicar_formulas(view_df, display_cols)
         else:
-            sel_display = sel
-        preview = sel_display[display_cols[:min(4, len(display_cols))]]
-        for c, v in preview.items():
-            v = "—" if pd.isna(v) else v
-            st.markdown(f"**{c}:** {v}")
-        if len(display_cols) > 4:
-            st.caption(f"+ {len(display_cols) - 4} campi")
+            view_df_display = view_df
+        ev = st.dataframe(
+            view_df_display[["id"] + display_cols],
+            use_container_width=True,
+            hide_index=True,
+            column_config={"id": "ID"},
+            on_select="rerun",
+            selection_mode="single-row",
+        )
 
-        ac1, ac2, ac3 = st.columns([1, 1, 8])
-        with ac1:
-            if st.button("👁️ Vedi", use_container_width=True):
-                st.session_state.vedi_id = rid
-                st.session_state.pagina = "dettaglio_record"
-                st.rerun()
-        with ac2:
-            if puo_modificare and st.button("✏️ Modifica", use_container_width=True):
-                st.session_state.modifica_id = rid
-                st.session_state.pagina = "modifica_record"
-                st.rerun()
-        with ac3:
-            if puo_modificare and st.button("🗑️ Elimina", use_container_width=True):
-                ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
-                if ok:
-                    msg(f"✅ Record #{rid} eliminato")
-                else:
-                    msg(err, "error")
-                st.rerun()
-    else:
-        st.info("👆 Seleziona una riga per vedere le azioni")
+        # ── ACTIONS ──
+        if ev.selection and ev.selection.rows:
+            sel_idx = view_df.index[ev.selection.rows[0]]
+            sel = view_df.loc[sel_idx]
+            rid = int(sel["id"])
+
+            st.divider()
+            st.markdown(f"**Record #{rid}** selezionato")
+            # preview (show computed values if formula mode is on)
+            if st.session_state.formula_mode:
+                sel_display = aplicar_formulas(pd.DataFrame([sel]), display_cols).iloc[0]
+            else:
+                sel_display = sel
+            preview = sel_display[display_cols[:min(4, len(display_cols))]]
+            for c, v in preview.items():
+                v = "—" if pd.isna(v) else v
+                st.markdown(f"**{c}:** {v}")
+            if len(display_cols) > 4:
+                st.caption(f"+ {len(display_cols) - 4} campi")
+
+            ac1, ac2, ac3 = st.columns([1, 1, 8])
+            with ac1:
+                if st.button("👁️ Vedi", use_container_width=True):
+                    st.session_state.vedi_id = rid
+                    st.session_state.pagina = "dettaglio_record"
+                    st.rerun()
+            with ac2:
+                if puo_modificare and st.button("✏️ Modifica", use_container_width=True):
+                    st.session_state.modifica_id = rid
+                    st.session_state.pagina = "modifica_record"
+                    st.rerun()
+            with ac3:
+                if puo_modificare and st.button("🗑️ Elimina", use_container_width=True):
+                    ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
+                    if ok:
+                        msg(f"✅ Record #{rid} eliminato")
+                    else:
+                        msg(err, "error")
+                    st.rerun()
+        else:
+            st.info("👆 Seleziona una riga per vedere le azioni")
 
     # ── DASHBOARD ───────────────────────────────────────────────────
     if st.session_state.visuale == "dashboard":
