@@ -29,6 +29,7 @@ def leggi_excel_con_formule(source, sheet=0):
         buf = io.BytesIO(source.read())
     buf.seek(0)
     df = pd.read_excel(buf, sheet_name=sheet, engine='openpyxl')
+    df = df.astype(object)
     if df.empty:
         return df
     buf.seek(0)
