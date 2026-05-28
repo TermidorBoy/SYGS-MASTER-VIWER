@@ -198,21 +198,78 @@ with st.sidebar:
 
         st.divider()
 
-        # File list
+        # File list con ordinamento, esportazione ed eliminazione
         files = db.file_utente(u["id"])
         if files:
-            st.markdown("**📁 File aperti**")
-            for f in files[:5]:
-                cols = st.columns([1, 4])
+            st.markdown("**📁 File**")
+            for i, f in enumerate(files):
+                is_active = st.session_state.file_id == f["id"]
+                cols = st.columns([1.2, 3.5, 1.5, 1.5])
                 with cols[0]:
-                    is_active = st.session_state.file_id == f["id"]
-                    st.markdown("📊" if not is_active else "📌")
+                    st.markdown("📌" if is_active else "📊")
                 with cols[1]:
-                    if st.button(f["nome_file"], key=f"side_f_{f['id']}", help=os.path.dirname(f["percorso"]),
+                    lbl = f["nome_file"]
+                    if st.button(lbl, key=f"side_f_{f['id']}",
                                  use_container_width=True, type="secondary" if not is_active else "primary"):
                         st.session_state.file_id = f["id"]
                         st.session_state.pagina = "vedi_file"
                         st.rerun()
+                with cols[2]:
+                    if i > 0:
+                        if st.button("⬆", key=f"up_{f['id']}", help="Sposta su"):
+                            f_prev = files[i-1]
+                            o_cur, o_prev = f["ordine"], f_prev["ordine"]
+                            db.aggiorna_ordine_file(f["id"], o_prev)
+                            db.aggiorna_ordine_file(f_prev["id"], o_cur)
+                            db.rinumera_ordini(u["id"])
+                            st.rerun()
+                with cols[3]:
+                    if st.button("⬇", key=f"dn_{f['id']}", help="Sposta giù"):
+                        if i < len(files) - 1:
+                            f_next = files[i+1]
+                            o_cur, o_next = f["ordine"], f_next["ordine"]
+                            db.aggiorna_ordine_file(f["id"], o_next)
+                            db.aggiorna_ordine_file(f_next["id"], o_cur)
+                            db.rinumera_ordini(u["id"])
+                            st.rerun()
+
+            # Gestione eliminazione con conferma
+            elim_id = st.session_state.get("conferma_elimina")
+            if elim_id:
+                elim_file = next((x for x in files if x["id"] == elim_id), None)
+                if elim_file:
+                    st.warning(f"Eliminare '{elim_file['nome_file']}'?")
+                    blob = db.esporta_file_excel(elim_id)
+                    if blob:
+                        st.download_button("📥 Scarica backup prima di eliminare",
+                                           data=blob, file_name=elim_file["nome_file"],
+                                           key="dl_backup", use_container_width=True)
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("🗑️ Elimina", use_container_width=True, type="primary"):
+                            db.elimina_file(elim_id)
+                            if st.session_state.file_id == elim_id:
+                                st.session_state.file_id = None
+                            st.session_state.conferma_elimina = None
+                            msg(f"'{elim_file['nome_file']}' eliminato")
+                            st.rerun()
+                    with col_no:
+                        if st.button("Annulla", use_container_width=True):
+                            st.session_state.conferma_elimina = None
+                            st.rerun()
+                else:
+                    st.session_state.conferma_elimina = None
+                    st.rerun()
+            else:
+                for f in files:
+                    with st.popover("⚙️", key=f"side_gear_{f['id']}"):
+                        blob = db.esporta_file_excel(f["id"])
+                        if blob:
+                            st.download_button("📥 Scarica", data=blob, file_name=f["nome_file"],
+                                               key=f"dl_{f['id']}", use_container_width=True)
+                        if st.button("🗑️ Elimina", key=f"del_side_{f['id']}", use_container_width=True):
+                            st.session_state.conferma_elimina = f["id"]
+                            st.rerun()
 
         st.divider()
         with st.expander("🔑 Cambia password"):
@@ -574,8 +631,10 @@ elif st.session_state.pagina == "carica":
     uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed")
     if uploaded:
         try:
+            import io as _io
             contenuto = uploaded.read()
-            df = leggi_excel_con_formule(uploaded)
+            buf = _io.BytesIO(contenuto)
+            df = leggi_excel_con_formule(buf)
             nome = uploaded.name
             colonne = list(df.columns) if not df.empty else []
             if not colonne:

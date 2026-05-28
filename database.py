@@ -54,6 +54,10 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
         conn.execute("ALTER TABLE file_excel ADD COLUMN contenuto BLOB")
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE file_excel ADD COLUMN ordine INTEGER DEFAULT 0")
+    except Exception:
+        pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS campi_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,10 +265,9 @@ def aggiorna_accesso(uid: int):
 
 # ── File Excel ──
 
-def salva_file_excel(utente_id: int, percorso: str, foglio: str, colonne: list, righe: int, contenuto: bytes = None):
+def salva_file_excel(utente_id: int, nome_file: str, foglio: str, colonne: list, righe: int, contenuto: bytes = None):
     conn = get_conn()
-    nome = os.path.basename(percorso)
-    cur = conn.execute("SELECT id FROM file_excel WHERE utente_id = ? AND percorso = ?", (utente_id, percorso))
+    cur = conn.execute("SELECT id FROM file_excel WHERE utente_id = ? AND nome_file = ?", (utente_id, nome_file))
     existing = cur.fetchone()
     if existing:
         conn.execute(
@@ -273,9 +276,10 @@ def salva_file_excel(utente_id: int, percorso: str, foglio: str, colonne: list, 
         )
         fid = existing["id"]
     else:
+        max_ord = conn.execute("SELECT COALESCE(MAX(ordine),0) as mx FROM file_excel WHERE utente_id = ?", (utente_id,)).fetchone()["mx"]
         cur = conn.execute(
-            "INSERT INTO file_excel (utente_id, percorso, nome_file, foglio, colonne, righe, contenuto) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (utente_id, percorso, nome, foglio, ",".join(colonne), righe, contenuto),
+            "INSERT INTO file_excel (utente_id, percorso, nome_file, foglio, colonne, righe, contenuto, ordine) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (utente_id, nome_file, nome_file, foglio, ",".join(colonne), righe, contenuto, max_ord + 1),
         )
         fid = cur.lastrowid
     conn.commit()
@@ -286,11 +290,11 @@ def salva_file_excel(utente_id: int, percorso: str, foglio: str, colonne: list, 
 def file_utente(utente_id: int):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, percorso, nome_file, foglio, colonne, righe, caricato_il FROM file_excel WHERE utente_id = ? ORDER BY caricato_il DESC",
+        "SELECT id, percorso, nome_file, foglio, colonne, righe, caricato_il, ordine FROM file_excel WHERE utente_id = ? ORDER BY ordine, caricato_il",
         (utente_id,),
     ).fetchall()
     user_rows = conn.execute(
-        "SELECT fe.id, fe.percorso, fe.nome_file, fe.foglio, fe.colonne, fe.righe, fe.caricato_il "
+        "SELECT fe.id, fe.percorso, fe.nome_file, fe.foglio, fe.colonne, fe.righe, fe.caricato_il, 9999 as ordine "
         "FROM permessi_file pf JOIN file_excel fe ON pf.file_id = fe.id WHERE pf.utente_id = ?", (utente_id,)
     ).fetchall()
     conn.close()
@@ -301,6 +305,22 @@ def file_utente(utente_id: int):
     return [dict(r) for r in rows]
 
 
+def aggiorna_ordine_file(fid: int, nuovo_ordine: int):
+    conn = get_conn()
+    conn.execute("UPDATE file_excel SET ordine = ? WHERE id = ?", (nuovo_ordine, fid))
+    conn.commit()
+    conn.close()
+
+
+def esporta_file_excel(fid: int) -> bytes:
+    conn = get_conn()
+    row = conn.execute("SELECT contenuto FROM file_excel WHERE id = ?", (fid,)).fetchone()
+    conn.close()
+    if row and row["contenuto"]:
+        return bytes(row["contenuto"])
+    return None
+
+
 def get_file_contenuto(fid: int):
     conn = get_conn()
     row = conn.execute("SELECT contenuto, percorso, foglio FROM file_excel WHERE id = ?", (fid,)).fetchone()
@@ -309,6 +329,19 @@ def get_file_contenuto(fid: int):
         import io
         return io.BytesIO(row["contenuto"]), row["foglio"]
     return None, None
+
+
+def rinumera_ordini(utente_id: int):
+    """Renumerà ordine 0,1,2,… per tutti i file dell'utente."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id FROM file_excel WHERE utente_id = ? ORDER BY ordine, id",
+        (utente_id,),
+    ).fetchall()
+    for i, r in enumerate(rows):
+        conn.execute("UPDATE file_excel SET ordine = ? WHERE id = ?", (i, r["id"]))
+    conn.commit()
+    conn.close()
 
 
 def elimina_file(fid: int):
