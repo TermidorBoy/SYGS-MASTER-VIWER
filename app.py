@@ -760,8 +760,8 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
 
     db.migra_tabella(fid)
     df = db.carica_dati(fid)
-    if df is None or df.empty:
-        st.warning("Nessun dato disponibile")
+    if df is None:
+        st.error("Errore nel caricamento dei dati")
         st.stop()
 
     colonne_dati = [c for c in df.columns if c not in ("id", "creato_da", "creato_il")]
