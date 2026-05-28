@@ -173,29 +173,47 @@ with st.sidebar:
 
         st.divider()
 
-        # File list — trascina il numero per riordinare
+        # File list — pulsanti per riordinare e opzioni per file
         files = db.file_utente(u["id"])
         if files:
             st.markdown("**File**")
             nf = len(files)
             for i, f in enumerate(files):
-                c1, c2 = st.columns([0.6, 4])
+                is_active = st.session_state.file_id == f["id"]
+                c1, c2, c3, c4 = st.columns([0.5, 0.5, 3.5, 0.8])
                 with c1:
-                    pos = st.number_input("", value=i+1, min_value=1, max_value=nf,
-                                          label_visibility="collapsed", key=f"pos_{f['id']}")
+                    if i > 0:
+                        if st.button("\u25B2", key=f"up_{f['id']}", help="Sposta su"):
+                            f_prev = files[i-1]
+                            o_cur, o_prev = f["ordine"], f_prev["ordine"]
+                            db.aggiorna_ordine_file(f["id"], o_prev)
+                            db.aggiorna_ordine_file(f_prev["id"], o_cur)
+                            db.rinumera_ordini(u["id"])
+                            st.rerun()
                 with c2:
+                    if i < nf - 1:
+                        if st.button("\u25BC", key=f"dn_{f['id']}", help="Sposta giu"):
+                            f_next = files[i+1]
+                            o_cur, o_next = f["ordine"], f_next["ordine"]
+                            db.aggiorna_ordine_file(f["id"], o_next)
+                            db.aggiorna_ordine_file(f_next["id"], o_cur)
+                            db.rinumera_ordini(u["id"])
+                            st.rerun()
+                with c3:
                     if st.button(f["nome_file"], key=f"side_f_{f['id']}",
-                                 use_container_width=True, type="secondary" if st.session_state.file_id != f["id"] else "primary"):
+                                 use_container_width=True, type="secondary" if not is_active else "primary"):
                         st.session_state.file_id = f["id"]
                         st.session_state.pagina = "vedi_file"
                         st.rerun()
-                if pos != i+1:
-                    target = next((x for x in files if x["ordine"] == pos), None)
-                    if target and target["id"] != f["id"]:
-                        db.aggiorna_ordine_file(f["id"], pos)
-                        db.aggiorna_ordine_file(target["id"], i+1)
-                        db.rinumera_ordini(u["id"])
-                        st.rerun()
+                with c4:
+                    with st.popover("\u22EE", key=f"side_menu_{f['id']}"):
+                        blob = db.esporta_file_excel(f["id"])
+                        if blob:
+                            st.download_button("Scarica", data=blob, file_name=f["nome_file"],
+                                               key=f"dl_{f['id']}", use_container_width=True)
+                        if st.button("Elimina", key=f"del_side_{f['id']}", use_container_width=True):
+                            st.session_state.conferma_elimina = f["id"]
+                            st.rerun()
 
             # Gestione eliminazione con conferma
             elim_id = st.session_state.get("conferma_elimina")
@@ -224,16 +242,6 @@ with st.sidebar:
                 else:
                     st.session_state.conferma_elimina = None
                     st.rerun()
-            else:
-                for f in files:
-                    with st.popover("Opzioni", key=f"side_gear_{f['id']}"):
-                        blob = db.esporta_file_excel(f["id"])
-                        if blob:
-                            st.download_button("Scarica", data=blob, file_name=f["nome_file"],
-                                               key=f"dl_{f['id']}", use_container_width=True)
-                        if st.button("Elimina", key=f"del_side_{f['id']}", use_container_width=True):
-                            st.session_state.conferma_elimina = f["id"]
-                            st.rerun()
 
         st.divider()
         with st.expander("Cambia password"):
