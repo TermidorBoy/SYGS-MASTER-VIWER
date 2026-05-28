@@ -745,10 +745,17 @@ def init_data_table(file_id: int, df: pd.DataFrame):
     conn = get_conn()
     table = f"dati_{file_id}"
     conn.execute(f"DROP TABLE IF EXISTS [{table}]")
+    import re as _re
+    def _sanitize(n):
+        n = n.strip().replace(" ", "_")
+        n = _re.sub(r'[^a-zA-Z0-9_]', '', n)
+        if not n or n[0].isdigit():
+            n = 'col_' + n
+        return n or 'colonna'
     cols_def = []
     safe_cols = []
     for c in df.columns:
-        safe = c.strip().replace(" ", "_").replace("'", "").replace('"', "").replace(".", "_")
+        safe = _sanitize(c)
         safe_cols.append(safe)
         if pd.api.types.is_numeric_dtype(df[c]):
             cols_def.append(f'"{safe}" REAL')
@@ -775,14 +782,23 @@ def init_data_table(file_id: int, df: pd.DataFrame):
     return safe_cols
 
 
-def init_data_table_vuoto(file_id: int, colonne: list):
+def init_data_table_vuoto(file_id: int, colonne: list) -> list:
     conn = get_conn()
     table = f"dati_{file_id}"
     conn.execute(f"DROP TABLE IF EXISTS [{table}]")
-    cols_def = [f'"{c.strip().replace(" ", "_").replace("'", "").replace("\"", "").replace(".", "_")}" TEXT' for c in colonne]
+    import re as _re
+    def _sanitize(n):
+        n = n.strip().replace(" ", "_")
+        n = _re.sub(r'[^a-zA-Z0-9_]', '', n)
+        if not n or n[0].isdigit():
+            n = 'col_' + n
+        return n or 'colonna'
+    safe_list = [_sanitize(c) for c in colonne]
+    cols_def = [f'"{s}" TEXT' for s in safe_list]
     conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
     conn.commit()
     conn.close()
+    return safe_list
 
 
 def migra_tabella(file_id: int):

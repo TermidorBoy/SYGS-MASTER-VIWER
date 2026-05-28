@@ -630,11 +630,19 @@ elif st.session_state.pagina == "carica":
             elif not nomi_validi:
                 msg("Aggiungi almeno una colonna", "warning")
             else:
+                import re as _re
+                def _sanitize(n):
+                    n = n.strip().replace(" ", "_")
+                    n = _re.sub(r'[^a-zA-Z0-9_]', '', n)
+                    if not n or n[0].isdigit():
+                        n = 'col_' + n
+                    return n or 'colonna'
+                safe_nomi = [_sanitize(x) for x in nomi_validi]
                 fid = db.salva_file_excel(st.session_state.utente["id"], nome_tab_val.strip(),
-                                          "Sheet1", nomi_validi, 0, None)
-                tipi = {c[0].strip(): c[1] for c in st.session_state.nf_colonne if c[0].strip()}
-                db.init_data_table_vuoto(fid, nomi_validi)
-                db.init_campi_config(fid, nomi_validi)
+                                          "Sheet1", safe_nomi, 0, None)
+                tipi = {safe_nomi[i]: st.session_state.nf_colonne[i][1] for i in range(len(safe_nomi))}
+                db.init_data_table_vuoto(fid, safe_nomi)
+                db.init_campi_config(fid, safe_nomi)
                 for nome_col, tipo_col in tipi.items():
                     cfg = db.get_campi_config(fid)
                     for c in cfg:
@@ -683,10 +691,10 @@ elif st.session_state.pagina == "carica":
                     fid = db.salva_file_excel(st.session_state.utente["id"], nome,
                                               "Sheet1", colonne, len(df), contenuto)
                     if not df.empty:
-                        db.init_data_table(fid, df)
+                        safe_cols = db.init_data_table(fid, df)
                     else:
-                        db.init_data_table_vuoto(fid, colonne)
-                    db.init_campi_config(fid, colonne)
+                        safe_cols = db.init_data_table_vuoto(fid, colonne)
+                    db.init_campi_config(fid, safe_cols)
                     st.session_state.file_id = fid
                     st.session_state.upload_pronto = False
                     st.session_state.ultimo_upload = None
