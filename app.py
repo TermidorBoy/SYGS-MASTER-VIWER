@@ -814,7 +814,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.rerun()
     with tb[7]:
         f_label = "ƒx ON" if st.session_state.formula_mode else "ƒx OFF"
-        f_help = "Desactivar fórmulas" if st.session_state.formula_mode else "Activar fórmulas tipo Excel"
+        f_help = "Disattiva formule" if st.session_state.formula_mode else "Attiva formule tipo Excel"
         if st.button(f_label, use_container_width=True, help=f_help, type="primary" if st.session_state.formula_mode else "secondary"):
             st.session_state.formula_mode = not st.session_state.formula_mode
             st.rerun()
