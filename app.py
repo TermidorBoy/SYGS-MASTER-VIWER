@@ -127,7 +127,15 @@ def iniziali(nome):
     return (parts[0][0] + (parts[-1][0] if len(parts) > 1 else "")).upper()
 
 
-db.init_db()
+try:
+    ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
+    ADMIN_NOME = st.secrets["ADMIN_NOME"]
+    ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+except (KeyError, AttributeError, Exception):
+    ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "s.galvis@setinstudio.com")
+    ADMIN_NOME = os.environ.get("ADMIN_NOME", "Sergio Galvis")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "2385")
+db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
 with st.sidebar:

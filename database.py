@@ -22,7 +22,7 @@ def hash_pw(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 
-def init_db():
+def init_db(admin_email=None, admin_nome=None, admin_password=None):
     conn = get_conn()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS utenti (
@@ -76,7 +76,6 @@ def init_db():
         conn.execute("ALTER TABLE campi_config ADD COLUMN valore_predefinito TEXT")
     except Exception:
         pass
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS permessi_file (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,9 +88,9 @@ def init_db():
             FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
         );
     """)
-    admin_email = os.environ.get("ADMIN_EMAIL", "s.galvis@setinstudio.com")
-    admin_nome = os.environ.get("ADMIN_NOME", "Sergio Galvis")
-    admin_pw = os.environ.get("ADMIN_PASSWORD", "2385")
+    admin_email = admin_email or os.environ.get("ADMIN_EMAIL", "s.galvis@setinstudio.com")
+    admin_nome = admin_nome or os.environ.get("ADMIN_NOME", "Sergio Galvis")
+    admin_pw = admin_password or os.environ.get("ADMIN_PASSWORD", "2385")
     cur = conn.execute("SELECT id FROM utenti WHERE email = ?", (admin_email,))
     if not cur.fetchone():
         conn.execute(
