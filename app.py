@@ -92,7 +92,7 @@ INIT = {
     "modifiche_pendenti": [], "formula_mode": False,
     "sort_col": "", "sort_dir": "asc", "filtri_salvati": {},
     "selezionati_multipla": [], "mostra_edita_multipla": False,
-    "modulo_idx": 0, "_modulo_fid": None,
+    "modulo_idx": 0, "_modulo_fid": None, "_df_key_version": 0,
 }
 for k, v in INIT.items():
     if k not in st.session_state:
@@ -1256,6 +1256,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             column_config={"id": "ID"},
             on_select="rerun",
             selection_mode="multi-row",
+            key=f"tabella_{st.session_state._df_key_version}",
         )
 
         # ── ACTIONS ──
@@ -1312,6 +1313,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.divider()
                 st.markdown(f"**{n_sel} record selezionati**")
                 if st.button("Annulla selezione", use_container_width=False):
+                    st.session_state._df_key_version += 1
                     st.rerun()
                 st.markdown("#### Edita multipla")
                 st.caption("Modifica un campo per tutti i record selezionati")
