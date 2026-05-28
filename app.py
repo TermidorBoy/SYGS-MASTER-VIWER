@@ -6,6 +6,16 @@ from datetime import datetime
 import openpyxl
 import database as db
 
+# ── Carica .env se esiste (per esecuzione locale) ──
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip().strip("\"'"))
+
 
 def leggi_excel_con_formule(source, sheet=0):
     """Legge un Excel preservando le formule come testo (=...) invece dei valori calcolati.
@@ -135,6 +145,23 @@ except (KeyError, AttributeError, Exception):
     ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL")
     ADMIN_NOME = os.environ.get("ADMIN_NOME")
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+    st.markdown("""<div style="max-width:600px;margin:4rem auto;padding:2rem;background:#fff3f3;border-radius:12px;border:1px solid #e74c3c;">
+<h2 style="color:#e74c3c;margin:0 0 0.5rem 0;">⚙️ Configurazione necessaria</h2>
+<p style="color:#555;">Crea un file <code>.env</code> nella cartella del progetto:</p>
+<pre style="background:#f5f5f5;padding:0.8rem;border-radius:6px;font-size:0.85rem;">
+ADMIN_EMAIL = la tua email
+ADMIN_NOME = Il tuo nome
+ADMIN_PASSWORD = la tua password
+</pre>
+<p style="color:#555;">Oppure su <b>Streamlit Cloud</b> → ⚙️ Settings → Secrets:</p>
+<pre style="background:#f5f5f5;padding:0.8rem;border-radius:6px;font-size:0.85rem;">
+ADMIN_EMAIL = "la tua email"
+ADMIN_NOME = "Il tuo nome"
+ADMIN_PASSWORD = "la tua password"
+</pre></div>""", unsafe_allow_html=True)
+    st.stop()
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
