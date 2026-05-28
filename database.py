@@ -139,22 +139,15 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
             )
         """)
     conn.execute("DELETE FROM sessioni WHERE expires < datetime('now') OR ultimo_accesso < datetime('now', '-1 day')")
-    admin_email = admin_email or os.environ.get("ADMIN_EMAIL")
-    admin_nome = admin_nome or os.environ.get("ADMIN_NOME")
-    admin_pw = admin_password or os.environ.get("ADMIN_PASSWORD")
-    if admin_email and admin_pw:
-        cur = conn.execute("SELECT id FROM utenti WHERE email = ?", (admin_email,))
-        row = cur.fetchone()
-        if row:
-            conn.execute("UPDATE utenti SET password = ?, nome = ? WHERE id = ?",
-                         (hash_pw(admin_pw), admin_nome or "Admin", row["id"]))
-        else:
-            conn.execute(
-                "INSERT INTO utenti (email, nome, password, ruolo) VALUES (?, ?, ?, ?)",
-                (admin_email, admin_nome or "Admin", hash_pw(admin_pw), "admin"),
-            )
     conn.commit()
     conn.close()
+
+
+def conta_utenti() -> int:
+    conn = get_conn()
+    cnt = conn.execute("SELECT COUNT(*) as n FROM utenti").fetchone()["n"]
+    conn.close()
+    return cnt
 
 
 def init_log_table():

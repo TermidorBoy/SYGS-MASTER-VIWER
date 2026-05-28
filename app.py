@@ -124,23 +124,10 @@ except (KeyError, AttributeError, Exception):
     ADMIN_NOME = os.environ.get("ADMIN_NOME")
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
-if not ADMIN_EMAIL or not ADMIN_PASSWORD:
-    st.markdown("""<div style="max-width:600px;margin:4rem auto;padding:2rem;background:#fff3f3;border-radius:12px;border:1px solid #e74c3c;">
-<h2 style="color:#e74c3c;margin:0 0 0.5rem 0;"> Configurazione necessaria</h2>
-<p style="color:#555;">Crea un file <code>.env</code> nella cartella del progetto:</p>
-<pre style="background:#f5f5f5;padding:0.8rem;border-radius:6px;font-size:0.85rem;">
-ADMIN_EMAIL = la tua email
-ADMIN_NOME = Il tuo nome
-ADMIN_PASSWORD = la tua password
-</pre>
-<p style="color:#555;">Oppure su <b>Streamlit Cloud</b> →  Settings → Secrets:</p>
-<pre style="background:#f5f5f5;padding:0.8rem;border-radius:6px;font-size:0.85rem;">
-ADMIN_EMAIL = "la tua email"
-ADMIN_NOME = "Il tuo nome"
-ADMIN_PASSWORD = "la tua password"
-</pre></div>""", unsafe_allow_html=True)
-    st.stop()
-db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
+if ADMIN_EMAIL and ADMIN_PASSWORD:
+    db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
+else:
+    db.init_db()
 
 # ── Se non autenticato → login (nessuna persistenza F5) ──
 if not st.session_state.utente:
@@ -484,32 +471,62 @@ def aplicar_formulas(df, data_cols):
     return df2
 
 # ── LOGIN ────────────────────────────────────────────────────────
-if st.session_state.pagina == "login":
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.markdown('<div style="font-size:2.5rem;margin-bottom:0.3rem;"></div>', unsafe_allow_html=True)
-        st.markdown('<h1>SYGS MASTER VIEWER</h1>', unsafe_allow_html=True)
-        st.markdown('<p class="subtitle">Gestione dati Excel multi-utente</p>', unsafe_allow_html=True)
-        email = st.text_input("Email", placeholder="nome@esempio.com")
-        password = st.text_input("Password", type="password", placeholder="••••••••")
-        if st.button("Accedi", use_container_width=True, type="primary"):
-            if email and password:
-                utente = db.login(email, password)
-                if utente:
-                    sid = db.crea_sessione(utente)
-                    st.session_state.utente = utente
-                    st.session_state.sid = sid
-                    st.session_state.pagina = "dashboard"
-                    msg(f"Benvenuto, {utente['nome']}!")
-                    st.rerun()
+if st.session_state.pagina == "login" or st.session_state.pagina == "registrati":
+    if st.session_state.pagina == "login":
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown('<div class="login-box">', unsafe_allow_html=True)
+            st.markdown('<div style="font-size:2.5rem;margin-bottom:0.3rem;"></div>', unsafe_allow_html=True)
+            st.markdown('<h1>SYGS MASTER VIEWER</h1>', unsafe_allow_html=True)
+            st.markdown('<p class="subtitle">Gestione dati Excel multi-utente</p>', unsafe_allow_html=True)
+            email = st.text_input("Email", placeholder="nome@esempio.com")
+            password = st.text_input("Password", type="password", placeholder="********")
+            if st.button("Accedi", use_container_width=True, type="primary"):
+                if email and password:
+                    utente = db.login(email, password)
+                    if utente:
+                        sid = db.crea_sessione(utente)
+                        st.session_state.utente = utente
+                        st.session_state.sid = sid
+                        st.session_state.pagina = "dashboard"
+                        msg(f"Benvenuto, {utente['nome']}!")
+                        st.rerun()
+                    else:
+                        msg("Email o password non validi", "error")
                 else:
-                    msg("Email o password non validi", "error")
-            else:
-                msg("Inserisci email e password", "warning")
-        st.markdown('<div style="margin-top:1rem;font-size:0.8rem;color:#9CA3AF;">'
-                    'Primo accesso: usa le credenziali fornite dall\'amministratore</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+                    msg("Inserisci email e password", "warning")
+            if st.button("Registrati", use_container_width=True):
+                st.session_state.pagina = "registrati"
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    elif st.session_state.pagina == "registrati":
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown('<div class="login-box">', unsafe_allow_html=True)
+            st.markdown('<h1>Registrati</h1>', unsafe_allow_html=True)
+            st.markdown('<p class="subtitle">Crea un account per utilizzare la piattaforma</p>', unsafe_allow_html=True)
+            reg_nome = st.text_input("Nome", placeholder="Il tuo nome")
+            reg_email = st.text_input("Email", placeholder="nome@esempio.com")
+            reg_pw = st.text_input("Password", type="password", placeholder="Scegli una password")
+            if st.button("Crea account", use_container_width=True, type="primary"):
+                if reg_nome and reg_email and reg_pw:
+                    # Primo utente diventa admin
+                    is_primo = db.conta_utenti() == 0
+                    ruolo = "admin" if is_primo else "utente"
+                    ok, err = db.crea_utente(reg_email, reg_nome, reg_pw, ruolo)
+                    if ok:
+                        msg(f"Account creato! Ora puoi accedere come {'admin principale' if is_primo else 'utente'}.")
+                        st.session_state.pagina = "login"
+                        st.rerun()
+                    else:
+                        msg(err, "error")
+                else:
+                    msg("Compila tutti i campi", "warning")
+            if st.button("Torna al login", use_container_width=True):
+                st.session_state.pagina = "login"
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 db.aggiorna_accesso(st.session_state.utente["id"])
@@ -1941,10 +1958,9 @@ elif st.session_state.pagina == "utenti":
     st.markdown("#### Elenco utenti")
     utenti = db.lista_utenti()
     for ut in utenti:
-        with st.expander(f"**{ut['nome']}** — {ut['email']} (`{ut['ruolo']}`)", expanded=False):
-            if ADMIN_EMAIL and ut["email"] == ADMIN_EMAIL:
-                st.caption("Admin principale — non modificabile")
-                continue
+        with st.expander(f"**{ut['nome']}** -- {ut['email']} (`{ut['ruolo']}`)", expanded=False):
+            if ut["id"] == st.session_state.utente["id"]:
+                st.caption("Sei tu -- non puoi eliminarti")
             col_pw, col_file = st.columns([1, 2])
             with col_pw:
                 st.markdown("**Password**")
@@ -1983,7 +1999,7 @@ elif st.session_state.pagina == "utenti":
                         msg(f"Permesso rimosso per {ut['nome']} su {f['nome_file']}")
                         st.rerun()
             st.divider()
-            if st.button(f" Elimina utente {ut['nome']}", key=f"del_user_{ut['id']}", use_container_width=True):
+            if ut["id"] != st.session_state.utente["id"] and st.button(f" Elimina utente {ut['nome']}", key=f"del_user_{ut['id']}", use_container_width=True):
                 db.elimina_utente(ut["id"])
                 msg(f"Utente {ut['nome']} eliminato")
                 st.rerun()
