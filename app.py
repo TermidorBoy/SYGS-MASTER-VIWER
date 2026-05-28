@@ -129,8 +129,8 @@ if ADMIN_EMAIL and ADMIN_PASSWORD:
 else:
     db.init_db()
 
-# ── Se non autenticato → login (nessuna persistenza F5) ──
-if not st.session_state.utente:
+# ── Se non autenticato → login/registrati (nessuna persistenza F5) ──
+if not st.session_state.utente and st.session_state.pagina not in ("login", "registrati"):
     st.session_state.pagina = "login"
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
