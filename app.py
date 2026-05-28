@@ -1154,59 +1154,17 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     st.caption(f"{total} record{filtri_label}" + (f" (su {len(df)} totali)" if total != len(df) else ""))
 
     if view_df.empty:
-        st.warning("Nessun record trovato" + (" (filtri attivi)" if st.session_state.filtri else ""))
+        st.info("Nessun dato presente." + (" Filtri attivi: rimuovi i filtri per vedere tutti i record." if st.session_state.filtri else " Usa i pulsanti sopra per aggiungere record o configurare i campi."))
         if not st.session_state.filtri and puo_modificare:
-            st.markdown("#### Aggiungi il primo record")
-            campi_config = db.get_campi_config(fid)
-            if not campi_config:
-                campi_config = [{"nome_campo": c, "tipo_campo": "text"} for c in colonne_dati]
-            campi_config = [cfg for cfg in campi_config if cfg.get("mostra_modulo", True)]
-            vals = {}
-            for cfg in campi_config:
-                c = cfg["nome_campo"]
-                if c not in colonne_dati:
-                    continue
-                tipo = cfg["tipo_campo"]
-                if tipo == "auto_number":
-                    continue
-                etichetta = f"{c} *" if cfg.get("obbligatorio") else c
-                opts = cfg.get("opzioni") or []
-                if tipo == "number":
-                    vals[c] = st.number_input(etichetta, key=f"emp_{c}")
-                elif tipo == "date":
-                    vals[c] = st.date_input(etichetta, key=f"emp_{c}")
-                elif tipo == "boolean":
-                    vals[c] = st.checkbox(etichetta, key=f"emp_{c}")
-                elif tipo == "single_select":
-                    vals[c] = st.selectbox(etichetta, opts if opts else [""], key=f"emp_{c}")
-                elif tipo == "text_area":
-                    vals[c] = st.text_area(etichetta, key=f"emp_{c}")
-                else:
-                    vals[c] = st.text_input(etichetta, key=f"emp_{c}")
-            if st.button("Salva", use_container_width=True, type="primary"):
-                safe_vals = {}
-                for c in colonne_dati:
-                    v = vals.get(c)
-                    if isinstance(v, str) and v.strip() == "":
-                        safe_vals[c] = None
-                    elif isinstance(v, bool):
-                        safe_vals[c] = 1 if v else 0
-                    elif v is not None:
-                        safe_vals[c] = v
-                for cfg in campi_config:
-                    if cfg.get("tipo_campo") == "auto_number":
-                        safe_vals[cfg["nome_campo"]] = db.prossimo_valore_auto(fid, cfg["nome_campo"])
-                try:
-                    err_val = db.valida_record(fid, safe_vals)
-                    if err_val:
-                        msg("; ".join(err_val), "error")
-                        st.rerun()
-                except Exception:
-                    pass
-                new_id = db.aggiungi_record(fid, safe_vals, st.session_state.utente["id"])
-                db.log_azione(fid, new_id, st.session_state.utente["id"], "creato", "Primo record")
-                msg("Record aggiunto")
-                st.rerun()
+            c1, c2, c3 = st.columns([1, 1, 4])
+            with c1:
+                if st.button("Nuovo record", use_container_width=True, type="primary"):
+                    st.session_state.pagina = "aggiungi_record"
+                    st.rerun()
+            with c2:
+                if st.button("Configura campi", use_container_width=True):
+                    st.session_state.pagina = "configura_campi"
+                    st.rerun()
         st.stop()
 
     # ── KANBAN / TABLE ──
