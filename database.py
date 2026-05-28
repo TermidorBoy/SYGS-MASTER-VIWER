@@ -822,12 +822,14 @@ def ricrea_tabella_da_config(file_id: int) -> list:
         seen.add(safe)
         return safe
 
+    system_cols = {"id", "creato_da", "creato_il"}
+
     if not campi:
         # Fallback 2: ricrea dal campo colonne del record file_excel
         row = conn.execute("SELECT colonne FROM file_excel WHERE id = ?", (file_id,)).fetchone()
         if row and row["colonne"]:
             cols = row["colonne"].split(",")
-            seen = set()
+            seen = set(system_cols)
             safe_list = []
             cols_def = []
             for c in cols:
@@ -835,14 +837,18 @@ def ricrea_tabella_da_config(file_id: int) -> list:
                 safe_list.append(safe)
                 cols_def.append(f'"{safe}" TEXT')
             conn.execute(f"DROP TABLE IF EXISTS [{table}]")
-            conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
+            try:
+                conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
+            except Exception as e:
+                conn.close()
+                raise RuntimeError(f"CREATE TABLE failed: {e}\ncols_def={cols_def}") from e
             conn.commit()
             conn.close()
             _ricrea_campi_config_basic(file_id, safe_list)
             return safe_list
         conn.close()
         return []
-    seen = set()
+    seen = set(system_cols)
     safe_cols = []
     cols_def = []
     for r in campi:
@@ -851,7 +857,11 @@ def ricrea_tabella_da_config(file_id: int) -> list:
         sql_type = "REAL" if r["tipo_campo"] == "number" else "TEXT"
         cols_def.append(f'"{safe}" {sql_type}')
     conn.execute(f"DROP TABLE IF EXISTS [{table}]")
-    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
+    try:
+        conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
+    except Exception as e:
+        conn.close()
+        raise RuntimeError(f"CREATE TABLE failed: {e}\ncols_def={cols_def}") from e
     conn.commit()
     conn.close()
     return safe_cols
