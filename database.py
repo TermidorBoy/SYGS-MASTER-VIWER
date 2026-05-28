@@ -1,7 +1,7 @@
 import sqlite3
 import hashlib
 import os
-import time as _time
+import json
 import uuid as _uuid
 import pandas as pd
 from datetime import datetime
@@ -90,6 +90,15 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
             FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
         );
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessioni (
+            sid TEXT PRIMARY KEY,
+            dati TEXT NOT NULL,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires TIMESTAMP
+        )
+    """)
+    conn.execute("DELETE FROM sessioni WHERE expires < datetime('now')")
     admin_email = admin_email or os.environ.get("ADMIN_EMAIL")
     admin_nome = admin_nome or os.environ.get("ADMIN_NOME")
     admin_pw = admin_password or os.environ.get("ADMIN_PASSWORD")
@@ -120,37 +129,43 @@ def get_utente_by_email(email: str):
     return dict(row) if row else None
 
 
-# ── Sessioni server-side (sopravvivono a F5, non esposte nella URL) ──
-_session_cache = {}  # sid -> {data, expires_at}
+# ── Sessioni server-side (DB, sopravvivono a F5 e restart) ──
 
 
-def _pulisci_sessioni():
-    now = _time.time()
-    scaduti = [k for k, v in _session_cache.items() if v["expires_at"] < now]
-    for k in scaduti:
-        del _session_cache[k]
+def _pulisci_sessioni_scadute():
+    conn = get_conn()
+    conn.execute("DELETE FROM sessioni WHERE expires < datetime('now')")
+    conn.commit()
+    conn.close()
 
 
 def crea_sessione(dati_utente: dict, giorni: int = 7) -> str:
-    _pulisci_sessioni()
     sid = _uuid.uuid4().hex
-    _session_cache[sid] = {
-        "data": dati_utente,
-        "expires_at": _time.time() + giorni * 86400,
-    }
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO sessioni (sid, dati, expires) VALUES (?, ?, datetime('now', '+' || ? || ' days'))",
+        (sid, json.dumps(dati_utente), giorni),
+    )
+    conn.commit()
+    conn.close()
     return sid
 
 
 def leggi_sessione(sid: str):
-    _pulisci_sessioni()
-    entry = _session_cache.get(sid)
-    if entry and entry["expires_at"] > _time.time():
-        return entry["data"]
-    return None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT dati FROM sessioni WHERE sid = ? AND expires > datetime('now')",
+        (sid,),
+    ).fetchone()
+    conn.close()
+    return json.loads(row["dati"]) if row else None
 
 
 def elimina_sessione(sid: str):
-    _session_cache.pop(sid, None)
+    conn = get_conn()
+    conn.execute("DELETE FROM sessioni WHERE sid = ?", (sid,))
+    conn.commit()
+    conn.close()
 
 
 def login(email: str, password: str):
