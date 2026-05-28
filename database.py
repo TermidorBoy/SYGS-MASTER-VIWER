@@ -806,42 +806,47 @@ def ricrea_tabella_da_config(file_id: int) -> list:
     conn = get_conn()
     table = f"dati_{file_id}"
     campi = conn.execute("SELECT nome_campo, tipo_campo FROM campi_config WHERE file_id = ? ORDER BY ordine", (file_id,)).fetchall()
+    
+    def _safe_col(n, seen):
+        safe = n.strip().replace(" ", "_")
+        import re as _re
+        safe = _re.sub(r'[^a-zA-Z0-9_]', '', safe)
+        if not safe or safe[0].isdigit():
+            safe = 'col_' + safe
+        safe = safe or 'colonna'
+        if safe in seen:
+            i = 2
+            while f"{safe}_{i}" in seen:
+                i += 1
+            safe = f"{safe}_{i}"
+        seen.add(safe)
+        return safe
+
     if not campi:
         # Fallback 2: ricrea dal campo colonne del record file_excel
         row = conn.execute("SELECT colonne FROM file_excel WHERE id = ?", (file_id,)).fetchone()
         if row and row["colonne"]:
             cols = row["colonne"].split(",")
-            import re as _re
+            seen = set()
             safe_list = []
             cols_def = []
             for c in cols:
-                n = c.strip()
-                safe = n.replace(" ", "_")
-                safe = _re.sub(r'[^a-zA-Z0-9_]', '', safe)
-                if not safe or safe[0].isdigit():
-                    safe = 'col_' + safe
-                safe = safe or 'colonna'
+                safe = _safe_col(c, seen)
                 safe_list.append(safe)
                 cols_def.append(f'"{safe}" TEXT')
             conn.execute(f"DROP TABLE IF EXISTS [{table}]")
             conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
             conn.commit()
             conn.close()
-            # Ricrea anche campi_config basic
             _ricrea_campi_config_basic(file_id, safe_list)
             return safe_list
         conn.close()
         return []
+    seen = set()
     safe_cols = []
     cols_def = []
     for r in campi:
-        n = r["nome_campo"]
-        import re as _re
-        safe = n.strip().replace(" ", "_")
-        safe = _re.sub(r'[^a-zA-Z0-9_]', '', safe)
-        if not safe or safe[0].isdigit():
-            safe = 'col_' + safe
-        safe = safe or 'colonna'
+        safe = _safe_col(r["nome_campo"], seen)
         safe_cols.append(safe)
         sql_type = "REAL" if r["tipo_campo"] == "number" else "TEXT"
         cols_def.append(f'"{safe}" {sql_type}')
