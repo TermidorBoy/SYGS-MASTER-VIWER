@@ -99,6 +99,10 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
         )
     """)
     conn.execute("DELETE FROM sessioni WHERE expires < datetime('now')")
+    try:
+        conn.execute("ALTER TABLE sessioni ADD COLUMN ultimo_accesso TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except Exception:
+        pass
     admin_email = admin_email or os.environ.get("ADMIN_EMAIL")
     admin_nome = admin_nome or os.environ.get("ADMIN_NOME")
     admin_pw = admin_password or os.environ.get("ADMIN_PASSWORD")
@@ -143,7 +147,7 @@ def crea_sessione(dati_utente: dict, giorni: int = 7) -> str:
     sid = _uuid.uuid4().hex
     conn = get_conn()
     conn.execute(
-        "INSERT INTO sessioni (sid, dati, expires) VALUES (?, ?, datetime('now', '+' || ? || ' days'))",
+        "INSERT INTO sessioni (sid, dati, expires, ultimo_accesso) VALUES (?, ?, datetime('now', '+' || ? || ' days'), CURRENT_TIMESTAMP)",
         (sid, json.dumps(dati_utente), giorni),
     )
     conn.commit()
@@ -153,8 +157,10 @@ def crea_sessione(dati_utente: dict, giorni: int = 7) -> str:
 
 def leggi_sessione(sid: str):
     conn = get_conn()
+    # Scadenza per inattività 30 min OPPURE expires assoluto
     row = conn.execute(
-        "SELECT dati FROM sessioni WHERE sid = ? AND expires > datetime('now')",
+        "SELECT dati FROM sessioni WHERE sid = ? AND expires > datetime('now')"
+        " AND ultimo_accesso > datetime('now', '-30 minutes')",
         (sid,),
     ).fetchone()
     conn.close()
@@ -168,45 +174,11 @@ def elimina_sessione(sid: str):
     conn.close()
 
 
-# ── Page tokens (rotazione continua, invalidano URL condivise) ──
-
-
-def _init_page_tokens():
+def aggiorna_accesso_sessione(sid: str):
     conn = get_conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS page_tokens (
-            token TEXT PRIMARY KEY,
-            sid TEXT NOT NULL,
-            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("DELETE FROM page_tokens WHERE created < datetime('now', '-1 hour')")
+    conn.execute("UPDATE sessioni SET ultimo_accesso = CURRENT_TIMESTAMP WHERE sid = ?", (sid,))
     conn.commit()
     conn.close()
-
-
-def crea_page_token(sid: str) -> str:
-    _init_page_tokens()
-    tk = _uuid.uuid4().hex
-    conn = get_conn()
-    conn.execute("DELETE FROM page_tokens WHERE sid = ?", (sid,))
-    conn.execute("INSERT INTO page_tokens (token, sid) VALUES (?, ?)", (tk, sid))
-    conn.commit()
-    conn.close()
-    return tk
-
-
-def leggi_page_token(token: str):
-    _init_page_tokens()
-    conn = get_conn()
-    row = conn.execute("SELECT sid FROM page_tokens WHERE token = ?", (token,)).fetchone()
-    if row:
-        conn.execute("DELETE FROM page_tokens WHERE token = ?", (token,))
-        conn.commit()
-        conn.close()
-        return row["sid"]
-    conn.close()
-    return None
 
 
 def login(email: str, password: str):

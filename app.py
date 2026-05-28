@@ -164,17 +164,39 @@ ADMIN_PASSWORD = "la tua password"
     st.stop()
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
-# ── Ripristina sessione da page token (sopravvive a F5, elimina token dopo uso) ──
+# ── Ripristina sessione da SID in URL (sopravvive a F5) ──
 if not st.session_state.utente:
-    pt = st.query_params.get("_pt")
-    if pt:
-        sid = db.leggi_page_token(pt)
-        if sid:
-            utente = db.leggi_sessione(sid)
-            if utente:
-                st.session_state.utente = utente
-                st.session_state.sid = sid
-                st.session_state.pagina = "dashboard"
+    sid = st.query_params.get("_sid")
+    if sid:
+        utente = db.leggi_sessione(sid)
+        if utente:
+            db.aggiorna_accesso_sessione(sid)
+            st.session_state.utente = utente
+            st.session_state.sid = sid
+            st.session_state.pagina = "dashboard"
+
+# ── Se non autenticato: tenta JS restore (sessionStorage) o mostra login ──
+if not st.session_state.utente:
+    if "_sid" not in st.query_params:
+        st.markdown("""
+        <div id="splash" style="display:flex;justify-content:center;align-items:center;height:100vh;">
+            <div style="text-align:center;"><div style="font-size:2rem;">⏳</div>
+            <div style="font-size:1.2rem;color:#666;">Caricamento...</div></div>
+        </div>
+        <script>
+        (function(){
+            var s = sessionStorage.getItem('sygs_sid');
+            if (s && !location.search.includes('_sid=')) {
+                var u = new URL(window.location);
+                u.searchParams.set('_sid', s);
+                window.location.href = u.toString();
+            }
+        })();
+        </script>
+        """, unsafe_allow_html=True)
+        st.stop()
+    # Qui _sid era presente ma non valido (scaduta) → login
+    st.session_state.pagina = "login"
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
 with st.sidebar:
@@ -243,6 +265,7 @@ with st.sidebar:
             sid = st.session_state.get("sid")
             if sid:
                 db.elimina_sessione(sid)
+            st.markdown("<script>sessionStorage.removeItem('sygs_sid');</script>", unsafe_allow_html=True)
             st.query_params.clear()
             st.session_state.utente = None
             st.session_state.pagina = "login"
@@ -494,8 +517,7 @@ if st.session_state.pagina == "login":
                 utente = db.login(email, password)
                 if utente:
                     sid = db.crea_sessione(utente)
-                    pt = db.crea_page_token(sid)
-                    st.query_params["_pt"] = pt
+                    st.query_params["_sid"] = sid
                     st.session_state.utente = utente
                     st.session_state.sid = sid
                     st.session_state.pagina = "dashboard"
@@ -510,16 +532,21 @@ if st.session_state.pagina == "login":
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# ── Guard ────────────────────────────────────────────────────────
-if not st.session_state.utente:
-    st.session_state.pagina = "login"
-    st.rerun()
-
 db.aggiorna_accesso(st.session_state.utente["id"])
+db.aggiorna_accesso_sessione(st.session_state.sid)
 
-# ── Ruota page token (ogni pagina, invalida token precedente) ──
-pt = db.crea_page_token(st.session_state.sid)
-st.query_params["_pt"] = pt
+# ── JavaScript: salva SID in sessionStorage, rimuove _sid dalla URL ──
+_sid_val = st.session_state.sid
+st.markdown("""
+<script>
+sessionStorage.setItem('sygs_sid', '""" + _sid_val + """');
+var u = new URL(window.location);
+if (u.searchParams.has('_sid')) {
+    u.searchParams.delete('_sid');
+    window.history.replaceState({}, '', u);
+}
+</script>
+""", unsafe_allow_html=True)
 
 # ── DASHBOARD ───────────────────────────────────────────────────
 if st.session_state.pagina == "dashboard":
