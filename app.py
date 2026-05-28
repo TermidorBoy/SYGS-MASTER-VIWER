@@ -848,7 +848,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([1.5, 0.4, 0.4, 0.5, 0.5, 0.4, 0.7, 1.3, 0.5])
+    tb = st.columns([1.5, 0.4, 0.4, 0.5, 0.5, 0.4, 0.7, 1.3])
     with tb[0]:
         s = st.text_input("", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
@@ -856,7 +856,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.ricerca = s
             st.rerun()
     with tb[1]:
-        if st.button("+F", type="tertiary", help="Aggiungi filtro"):
+        if st.button("Filtro", type="tertiary", help="Aggiungi filtro"):
             st.session_state.filtri.append({"colonna": "", "valore": ""})
             st.rerun()
     with tb[2]:
@@ -892,20 +892,6 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                            label_visibility="collapsed")
         if v_opts[sel] != cur:
             st.session_state.visuale = v_opts[sel]
-            st.rerun()
-    with tb[6]:
-        if st.button("Ricarica", type="tertiary", help="Ricarica dati"):
-            try:
-                buf, foglio_db = db.get_file_contenuto(fid)
-                if buf:
-                    import io
-                    df_new = leggi_excel_con_formule(io.BytesIO(buf))
-                else:
-                    df_new = leggi_excel_con_formule(info["percorso"])
-                db.init_data_table(fid, df_new)
-                msg("Dati ricaricati dal file Excel (formule preservate)")
-            except Exception as e:
-                msg(f"Errore: {e}", "error")
             st.rerun()
 
     # ── FILTRI MULTIPLI ──
