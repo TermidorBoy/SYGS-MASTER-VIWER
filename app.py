@@ -173,39 +173,20 @@ with st.sidebar:
 
         st.divider()
 
-        # File list — pulsanti per riordinare e opzioni per file
+        # File list — ogni file con menu opzioni (⋮)
         files = db.file_utente(u["id"])
         if files:
             st.markdown("**File**")
-            nf = len(files)
             for i, f in enumerate(files):
                 is_active = st.session_state.file_id == f["id"]
-                c1, c2, c3, c4 = st.columns([0.5, 0.5, 3.5, 0.8])
+                c1, c2 = st.columns([4, 0.6])
                 with c1:
-                    if i > 0:
-                        if st.button("\u25B2", key=f"up_{f['id']}", help="Sposta su"):
-                            f_prev = files[i-1]
-                            o_cur, o_prev = f["ordine"], f_prev["ordine"]
-                            db.aggiorna_ordine_file(f["id"], o_prev)
-                            db.aggiorna_ordine_file(f_prev["id"], o_cur)
-                            db.rinumera_ordini(u["id"])
-                            st.rerun()
-                with c2:
-                    if i < nf - 1:
-                        if st.button("\u25BC", key=f"dn_{f['id']}", help="Sposta giu"):
-                            f_next = files[i+1]
-                            o_cur, o_next = f["ordine"], f_next["ordine"]
-                            db.aggiorna_ordine_file(f["id"], o_next)
-                            db.aggiorna_ordine_file(f_next["id"], o_cur)
-                            db.rinumera_ordini(u["id"])
-                            st.rerun()
-                with c3:
                     if st.button(f["nome_file"], key=f"side_f_{f['id']}",
                                  use_container_width=True, type="secondary" if not is_active else "primary"):
                         st.session_state.file_id = f["id"]
                         st.session_state.pagina = "vedi_file"
                         st.rerun()
-                with c4:
+                with c2:
                     with st.popover("\u22EE", key=f"side_menu_{f['id']}"):
                         blob = db.esporta_file_excel(f["id"])
                         if blob:
