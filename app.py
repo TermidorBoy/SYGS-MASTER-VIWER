@@ -1163,66 +1163,66 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     else:
         st.info("👆 Seleziona una riga per vedere le azioni")
 
-# ── DASHBOARD ───────────────────────────────────────────────────
-if st.session_state.visuale == "dashboard":
-    fcfg = db.get_file_config(fid)
-    widgets = db.get_dashboard_config(fid)
-    if not widgets:
-        st.info("📊 Nessun widget configurato. Vai su **⚙️ Campi → 📊 Dashboard** per aggiungerne.")
-        if st.button("⚙️ Configura dashboard"):
-            st.session_state.pagina = "configura_dashboard"
-            st.rerun()
+    # ── DASHBOARD ───────────────────────────────────────────────────
+    if st.session_state.visuale == "dashboard":
+        fcfg = db.get_file_config(fid)
+        widgets = db.get_dashboard_config(fid)
+        if not widgets:
+            st.info("📊 Nessun widget configurato. Vai su **⚙️ Campi → 📊 Dashboard** per aggiungerne.")
+            if st.button("⚙️ Configura dashboard"):
+                st.session_state.pagina = "configura_dashboard"
+                st.rerun()
+            st.stop()
+        st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">📊 Dashboard</div>', unsafe_allow_html=True)
+        for i in range(0, len(widgets), 2):
+            row_w = widgets[i:i+2]
+            cols = st.columns(len(row_w))
+            for j, w in enumerate(row_w):
+                with cols[j]:
+                    tipo = w.get("tipo", "metric")
+                    colonna = w.get("colonna", "")
+                    label = w.get("etichetta", colonna)
+                    try:
+                        if tipo == "metric" and colonna and colonna in df.columns:
+                            func = w.get("funzione", "count")
+                            col_data = pd.to_numeric(df[colonna], errors='coerce')
+                            if func == "count":
+                                val = col_data.count()
+                            elif func == "sum":
+                                val = col_data.sum()
+                            elif func == "avg":
+                                val = round(col_data.mean(), 2)
+                            elif func == "min":
+                                val = col_data.min()
+                            elif func == "max":
+                                val = col_data.max()
+                            else:
+                                val = col_data.count()
+                            st.metric(label, f"{val:,.2f}" if isinstance(val, float) else val)
+                        elif tipo in ("bar", "line") and colonna and colonna in df.columns:
+                            gruppo = w.get("colonna_gruppo", "")
+                            if gruppo and gruppo in df.columns:
+                                grp = df.groupby(gruppo)[colonna].count().sort_values(ascending=False).head(20)
+                                if tipo == "bar":
+                                    st.bar_chart(grp, height=250)
+                                else:
+                                    st.line_chart(grp, height=250)
+                                st.caption(f"{label} per {gruppo}")
+                            else:
+                                ser = pd.to_numeric(df[colonna], errors='coerce').dropna()
+                                if tipo == "bar":
+                                    st.bar_chart(ser.value_counts().head(20), height=250)
+                                else:
+                                    st.line_chart(ser.value_counts().sort_index(), height=250)
+                                st.caption(label)
+                        elif tipo == "counter":
+                            val = df[colonna].nunique() if colonna and colonna in df.columns else len(df)
+                            st.metric(label, val)
+                        else:
+                            st.info(f"Widget: {label}")
+                    except Exception as e:
+                        st.caption(f"Errore: {e}")
         st.stop()
-    st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">📊 Dashboard</div>', unsafe_allow_html=True)
-    for i in range(0, len(widgets), 2):
-        row_w = widgets[i:i+2]
-        cols = st.columns(len(row_w))
-        for j, w in enumerate(row_w):
-            with cols[j]:
-                tipo = w.get("tipo", "metric")
-                colonna = w.get("colonna", "")
-                label = w.get("etichetta", colonna)
-                try:
-                    if tipo == "metric" and colonna and colonna in df.columns:
-                        func = w.get("funzione", "count")
-                        col_data = pd.to_numeric(df[colonna], errors='coerce')
-                        if func == "count":
-                            val = col_data.count()
-                        elif func == "sum":
-                            val = col_data.sum()
-                        elif func == "avg":
-                            val = round(col_data.mean(), 2)
-                        elif func == "min":
-                            val = col_data.min()
-                        elif func == "max":
-                            val = col_data.max()
-                        else:
-                            val = col_data.count()
-                        st.metric(label, f"{val:,.2f}" if isinstance(val, float) else val)
-                    elif tipo in ("bar", "line") and colonna and colonna in df.columns:
-                        gruppo = w.get("colonna_gruppo", "")
-                        if gruppo and gruppo in df.columns:
-                            grp = df.groupby(gruppo)[colonna].count().sort_values(ascending=False).head(20)
-                            if tipo == "bar":
-                                st.bar_chart(grp, height=250)
-                            else:
-                                st.line_chart(grp, height=250)
-                            st.caption(f"{label} per {gruppo}")
-                        else:
-                            ser = pd.to_numeric(df[colonna], errors='coerce').dropna()
-                            if tipo == "bar":
-                                st.bar_chart(ser.value_counts().head(20), height=250)
-                            else:
-                                st.line_chart(ser.value_counts().sort_index(), height=250)
-                            st.caption(label)
-                    elif tipo == "counter":
-                        val = df[colonna].nunique() if colonna and colonna in df.columns else len(df)
-                        st.metric(label, val)
-                    else:
-                        st.info(f"Widget: {label}")
-                except Exception as e:
-                    st.caption(f"Errore: {e}")
-    st.stop()
 
 # ── CONFIGURA CAMPI ─────────────────────────────────────────────
 elif st.session_state.pagina == "configura_campi":
