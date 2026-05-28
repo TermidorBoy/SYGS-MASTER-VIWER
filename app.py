@@ -845,7 +845,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([1.5, 1, 1, 0.7, 0.7, 0.7, 2.5, 0.5, 0.5])
+    tb = st.columns([1.5, 1, 1, 0.5, 0.5, 0.7, 1.8, 0.5])
     with tb[0]:
         s = st.text_input("", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
@@ -874,38 +874,32 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.rerun()
     with tb[3]:
         if puo_modificare:
-            if st.button("Nuovo", use_container_width=True):
+            if st.button("Nuovo", type="tertiary"):
                 st.session_state.pagina = "aggiungi_record"
                 st.rerun()
     with tb[4]:
-        if st.button("Export", use_container_width=True, help="Esporta in Excel"):
+        if st.button("Export", type="tertiary", help="Esporta in Excel"):
             percorso = info["percorso"]
             if db.esporta_excel(fid, percorso):
-                msg(f" Dati esportati in '{percorso}'")
+                msg(f"Dati esportati in '{percorso}'")
             else:
                 msg("Errore durante l'esportazione", "error")
             st.rerun()
     with tb[5]:
-        if st.button("Campi", use_container_width=True, help="Configura campi"):
+        if st.button("Campi", type="tertiary", help="Configura campi"):
             st.session_state.pagina = "configura_campi"
             st.rerun()
     with tb[6]:
         v_opts = {"Tabella": "tabella", "Kanban": "kanban", "Calendario": "calendario", "Dashboard": "dashboard"}
         cur = st.session_state.visuale
-        sel = st.radio("", list(v_opts.keys()),
-                       index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
-                       horizontal=True, label_visibility="collapsed")
+        sel = st.selectbox("", list(v_opts.keys()),
+                           index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
+                           label_visibility="collapsed")
         if v_opts[sel] != cur:
             st.session_state.visuale = v_opts[sel]
             st.rerun()
     with tb[7]:
-        f_label = "fx ON" if st.session_state.formula_mode else "fx OFF"
-        f_help = "Disattiva formule" if st.session_state.formula_mode else "Attiva formule tipo Excel"
-        if st.button(f_label, use_container_width=True, help=f_help, type="primary" if st.session_state.formula_mode else "secondary"):
-            st.session_state.formula_mode = not st.session_state.formula_mode
-            st.rerun()
-    with tb[8]:
-        if st.button("Ricarica", use_container_width=True, help="Ricarica dati"):
+        if st.button("Ricarica", type="tertiary", help="Ricarica dati"):
             try:
                 buf, foglio_db = db.get_file_contenuto(fid)
                 if buf:
