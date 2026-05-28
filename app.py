@@ -1,10 +1,13 @@
 import streamlit as st
 import pandas as pd
 import os
+import hashlib
 from pathlib import Path
 from datetime import datetime
 import openpyxl
 import database as db
+
+_SESSION_SALT = "SYGS_MASTER_VIEWER_2024"
 
 # ── Carica .env se esiste (per esecuzione locale) ──
 _env_path = Path(__file__).parent / ".env"
@@ -164,6 +167,17 @@ ADMIN_PASSWORD = "la tua password"
     st.stop()
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
+# ── Ripristina sessione da query params (sopravvive a F5) ──
+if not st.session_state.utente:
+    qp = st.query_params
+    if "user" in qp and "token" in qp:
+        token_ok = hashlib.sha256((qp["user"] + _SESSION_SALT).encode()).hexdigest()[:16]
+        if qp["token"] == token_ok:
+            utente = db.get_utente_by_email(qp["user"])
+            if utente:
+                st.session_state.utente = utente
+                st.session_state.pagina = "dashboard"
+
 # ── SIDEBAR ─────────────────────────────────────────────────────
 with st.sidebar:
     if st.session_state.utente:
@@ -231,6 +245,7 @@ with st.sidebar:
             st.session_state.utente = None
             st.session_state.pagina = "login"
             st.session_state.file_id = None
+            st.query_params.clear()
             st.rerun()
 
 # ── MAIN ─────────────────────────────────────────────────────────
@@ -479,6 +494,8 @@ if st.session_state.pagina == "login":
                 if utente:
                     st.session_state.utente = utente
                     st.session_state.pagina = "dashboard"
+                    st.query_params["user"] = utente["email"]
+                    st.query_params["token"] = hashlib.sha256((utente["email"] + _SESSION_SALT).encode()).hexdigest()[:16]
                     msg(f"Benvenuto, {utente['nome']}!")
                     st.rerun()
                 else:

@@ -108,6 +108,16 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
 
 # ── Auth ──
 
+def get_utente_by_email(email: str):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, email, nome, ruolo, avatar_color FROM utenti WHERE email = ?",
+        (email,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def login(email: str, password: str):
     conn = get_conn()
     cur = conn.execute(
