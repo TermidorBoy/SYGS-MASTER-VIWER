@@ -684,7 +684,7 @@ elif st.session_state.pagina == "carica":
                     df = pd.read_csv(buf)
                 else:
                     df = leggi_excel_con_formule(buf)
-                colonne = list(df.columns) if not df.empty else []
+                colonne = list(df.columns)
                 if not colonne:
                     msg("Il file non ha colonne", "error")
                 else:
