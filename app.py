@@ -764,7 +764,13 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         db.ricrea_tabella_da_config(fid)
         df = db.carica_dati(fid)
     if df is None:
-        st.error("Errore nel caricamento dei dati")
+        st.error("Impossibile caricare i dati per questo file. Il file potrebbe essere danneggiato.")
+        if st.button("Torna alla dashboard"):
+            cambia_pagina("dashboard")
+        if st.button("Elimina questo file"):
+            db.elimina_file(fid)
+            msg("File eliminato")
+            cambia_pagina("dashboard")
         st.stop()
 
     colonne_dati = [c for c in df.columns if c not in ("id", "creato_da", "creato_il")]

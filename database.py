@@ -807,6 +807,29 @@ def ricrea_tabella_da_config(file_id: int) -> list:
     table = f"dati_{file_id}"
     campi = conn.execute("SELECT nome_campo, tipo_campo FROM campi_config WHERE file_id = ? ORDER BY ordine", (file_id,)).fetchall()
     if not campi:
+        # Fallback 2: ricrea dal campo colonne del record file_excel
+        row = conn.execute("SELECT colonne FROM file_excel WHERE id = ?", (file_id,)).fetchone()
+        if row and row["colonne"]:
+            cols = row["colonne"].split(",")
+            import re as _re
+            safe_list = []
+            cols_def = []
+            for c in cols:
+                n = c.strip()
+                safe = n.replace(" ", "_")
+                safe = _re.sub(r'[^a-zA-Z0-9_]', '', safe)
+                if not safe or safe[0].isdigit():
+                    safe = 'col_' + safe
+                safe = safe or 'colonna'
+                safe_list.append(safe)
+                cols_def.append(f'"{safe}" TEXT')
+            conn.execute(f"DROP TABLE IF EXISTS [{table}]")
+            conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
+            conn.commit()
+            conn.close()
+            # Ricrea anche campi_config basic
+            _ricrea_campi_config_basic(file_id, safe_list)
+            return safe_list
         conn.close()
         return []
     safe_cols = []
@@ -827,6 +850,18 @@ def ricrea_tabella_da_config(file_id: int) -> list:
     conn.commit()
     conn.close()
     return safe_cols
+
+
+def _ricrea_campi_config_basic(file_id: int, colonne: list):
+    conn = get_conn()
+    conn.execute("DELETE FROM campi_config WHERE file_id = ?", (file_id,))
+    for nome in colonne:
+        conn.execute(
+            "INSERT INTO campi_config (file_id, nome_campo, tipo_campo, obbligatorio, ordine) VALUES (?, ?, 'text', 0, ?)",
+            (file_id, nome, colonne.index(nome)),
+        )
+    conn.commit()
+    conn.close()
 
 
 def migra_tabella(file_id: int):
