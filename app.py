@@ -1,13 +1,10 @@
 import streamlit as st
 import pandas as pd
 import os
-import hashlib
 from pathlib import Path
 from datetime import datetime, date
 import openpyxl
 import database as db
-
-_SESSION_SALT = "SYGS_MASTER_VIEWER_2024"
 
 # ── Carica .env se esiste (per esecuzione locale) ──
 _env_path = Path(__file__).parent / ".env"
@@ -168,15 +165,12 @@ ADMIN_PASSWORD = "la tua password"
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
 # ── Ripristina sessione da query params (sopravvive a F5) ──
-if not st.session_state.utente:
-    qp = st.query_params
-    if "user" in qp and "token" in qp:
-        token_ok = hashlib.sha256((qp["user"] + _SESSION_SALT).encode()).hexdigest()[:16]
-        if qp["token"] == token_ok:
-            utente = db.get_utente_by_email(qp["user"])
-            if utente:
-                st.session_state.utente = utente
-                st.session_state.pagina = "dashboard"
+if not st.session_state.utente and "sid" in st.query_params:
+    utente = db.leggi_sessione(st.query_params["sid"])
+    if utente:
+        st.session_state.utente = utente
+        st.session_state.pagina = "dashboard"
+        st.session_state.sid = st.query_params["sid"]
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
 with st.sidebar:
@@ -242,6 +236,9 @@ with st.sidebar:
                         msg("Compila tutti i campi", "warning")
         st.divider()
         if st.button("🚪  Esci", use_container_width=True):
+            sid = st.session_state.get("sid")
+            if sid:
+                db.elimina_sessione(sid)
             st.session_state.utente = None
             st.session_state.pagina = "login"
             st.session_state.file_id = None
@@ -494,8 +491,9 @@ if st.session_state.pagina == "login":
                 if utente:
                     st.session_state.utente = utente
                     st.session_state.pagina = "dashboard"
-                    st.query_params["user"] = utente["email"]
-                    st.query_params["token"] = hashlib.sha256((utente["email"] + _SESSION_SALT).encode()).hexdigest()[:16]
+                    sid = db.crea_sessione(utente)
+                    st.session_state.sid = sid
+                    st.query_params["sid"] = sid
                     msg(f"Benvenuto, {utente['nome']}!")
                     st.rerun()
                 else:

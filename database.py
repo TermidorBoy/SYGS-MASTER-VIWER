@@ -1,6 +1,8 @@
 import sqlite3
 import hashlib
 import os
+import time as _time
+import uuid as _uuid
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -116,6 +118,39 @@ def get_utente_by_email(email: str):
     ).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+# ── Sessioni server-side (sopravvivono a F5, non esposte nella URL) ──
+_session_cache = {}  # sid -> {data, expires_at}
+
+
+def _pulisci_sessioni():
+    now = _time.time()
+    scaduti = [k for k, v in _session_cache.items() if v["expires_at"] < now]
+    for k in scaduti:
+        del _session_cache[k]
+
+
+def crea_sessione(dati_utente: dict, giorni: int = 7) -> str:
+    _pulisci_sessioni()
+    sid = _uuid.uuid4().hex
+    _session_cache[sid] = {
+        "data": dati_utente,
+        "expires_at": _time.time() + giorni * 86400,
+    }
+    return sid
+
+
+def leggi_sessione(sid: str):
+    _pulisci_sessioni()
+    entry = _session_cache.get(sid)
+    if entry and entry["expires_at"] > _time.time():
+        return entry["data"]
+    return None
+
+
+def elimina_sessione(sid: str):
+    _session_cache.pop(sid, None)
 
 
 def login(email: str, password: str):
