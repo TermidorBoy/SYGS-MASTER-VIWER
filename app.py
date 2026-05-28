@@ -901,8 +901,8 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "configura_campi"
             st.rerun()
     with tb[6]:
-        v_next = {"tabella": "kanban", "kanban": "calendario", "calendario": "tabella"}
-        v_lbl = {"tabella": "📋 Kanban", "kanban": "📅 Calendario", "calendario": "📊 Tabella"}
+        v_next = {"tabella": "kanban", "kanban": "calendario", "calendario": "dashboard", "dashboard": "tabella"}
+        v_lbl = {"tabella": "📋 Kanban", "kanban": "📅 Calendario", "calendario": "📊 Dashboard", "dashboard": "📊 Tabella"}
         cur = st.session_state.visuale
         if st.button(v_lbl.get(cur, "📊 Tabella"), use_container_width=True, help="Cambia visuale"):
             st.session_state.visuale = v_next.get(cur, "tabella")
@@ -1162,6 +1162,67 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     else:
         st.info("👆 Seleziona una riga per vedere le azioni")
 
+# ── DASHBOARD ───────────────────────────────────────────────────
+if st.session_state.visuale == "dashboard":
+    fcfg = db.get_file_config(fid)
+    widgets = db.get_dashboard_config(fid)
+    if not widgets:
+        st.info("📊 Nessun widget configurato. Vai su **⚙️ Campi → 📊 Dashboard** per aggiungerne.")
+        if st.button("⚙️ Configura dashboard"):
+            st.session_state.pagina = "configura_dashboard"
+            st.rerun()
+        st.stop()
+    st.markdown(f'<div style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">📊 Dashboard</div>', unsafe_allow_html=True)
+    for i in range(0, len(widgets), 2):
+        row_w = widgets[i:i+2]
+        cols = st.columns(len(row_w))
+        for j, w in enumerate(row_w):
+            with cols[j]:
+                tipo = w.get("tipo", "metric")
+                colonna = w.get("colonna", "")
+                label = w.get("etichetta", colonna)
+                try:
+                    if tipo == "metric" and colonna and colonna in df.columns:
+                        func = w.get("funzione", "count")
+                        col_data = pd.to_numeric(df[colonna], errors='coerce')
+                        if func == "count":
+                            val = col_data.count()
+                        elif func == "sum":
+                            val = col_data.sum()
+                        elif func == "avg":
+                            val = round(col_data.mean(), 2)
+                        elif func == "min":
+                            val = col_data.min()
+                        elif func == "max":
+                            val = col_data.max()
+                        else:
+                            val = col_data.count()
+                        st.metric(label, f"{val:,.2f}" if isinstance(val, float) else val)
+                    elif tipo in ("bar", "line") and colonna and colonna in df.columns:
+                        gruppo = w.get("colonna_gruppo", "")
+                        if gruppo and gruppo in df.columns:
+                            grp = df.groupby(gruppo)[colonna].count().sort_values(ascending=False).head(20)
+                            if tipo == "bar":
+                                st.bar_chart(grp, height=250)
+                            else:
+                                st.line_chart(grp, height=250)
+                            st.caption(f"{label} per {gruppo}")
+                        else:
+                            ser = pd.to_numeric(df[colonna], errors='coerce').dropna()
+                            if tipo == "bar":
+                                st.bar_chart(ser.value_counts().head(20), height=250)
+                            else:
+                                st.line_chart(ser.value_counts().sort_index(), height=250)
+                            st.caption(label)
+                    elif tipo == "counter":
+                        val = df[colonna].nunique() if colonna and colonna in df.columns else len(df)
+                        st.metric(label, val)
+                    else:
+                        st.info(f"Widget: {label}")
+                except Exception as e:
+                    st.caption(f"Errore: {e}")
+    st.stop()
+
 # ── CONFIGURA CAMPI ─────────────────────────────────────────────
 elif st.session_state.pagina == "configura_campi":
     fid = st.session_state.file_id
@@ -1174,7 +1235,7 @@ elif st.session_state.pagina == "configura_campi":
         st.session_state.modifiche_pendenti = []
 
     st.markdown(f'<div class="page-title">⚙️ Configura campi</div>', unsafe_allow_html=True)
-    col_back, col_stati, col_add = st.columns([1, 1, 2])
+    col_back, col_stati, col_dash, col_add = st.columns([1, 1, 1, 2])
     with col_back:
         if st.button("🔙 Torna al file", use_container_width=False):
             st.session_state.modifiche_pendenti = []
@@ -1183,6 +1244,10 @@ elif st.session_state.pagina == "configura_campi":
     with col_stati:
         if st.button("📋 Stati", use_container_width=False, help="Configura stati Kanban"):
             st.session_state.pagina = "configura_stati"
+            st.rerun()
+    with col_dash:
+        if st.button("📊 Dashboard", use_container_width=False, help="Configura widget dashboard"):
+            st.session_state.pagina = "configura_dashboard"
             st.rerun()
     with col_add:
         with st.expander("➕ Aggiungi colonna"):
@@ -1332,6 +1397,65 @@ elif st.session_state.pagina == "configura_campi":
                     })
                     st.toast(f"🗑️ '{campo['nome_campo']}' in coda per eliminazione")
             st.divider()
+
+# ── CONFIGURA DASHBOARD ─────────────────────────────────────────
+elif st.session_state.pagina == "configura_dashboard":
+    fid = st.session_state.file_id
+    if fid is None:
+        msg("Nessun file selezionato", "warning")
+        st.session_state.pagina = "dashboard"
+        st.rerun()
+    df_cfg = db.carica_dati(fid)
+    colonne_dati = [c for c in df_cfg.columns if c not in ("id", "creato_da", "creato_il")] if df_cfg is not None else []
+    st.markdown(f'<div class="page-title">📊 Configura Dashboard</div>', unsafe_allow_html=True)
+    if st.button("🔙 Torna al file"):
+        st.session_state.pagina = "vedi_file"
+        st.rerun()
+    with st.expander("➕ Aggiungi widget", expanded=True):
+        with st.form("nuovo_widget", border=False):
+            tipo = st.selectbox("Tipo", ["metric", "counter", "bar", "line"])
+            colonna = st.selectbox("Colonna dati", [""] + colonne_dati) if colonne_dati else st.text_input("Colonna")
+            gruppo = st.selectbox("Colonna raggruppamento (opzionale)", [""] + colonne_dati, help="Per grafici a barre/linee") if colonne_dati else st.text_input("Colonna raggruppamento")
+            funzione = st.selectbox("Funzione", ["count", "sum", "avg", "min", "max"], help="Solo per widget metric")
+            etichetta = st.text_input("Etichetta", placeholder="Es: Totale vendite")
+            if st.form_submit_button("➕ Aggiungi"):
+                if colonna:
+                    w = {"tipo": tipo, "colonna": colonna, "colonna_gruppo": gruppo if gruppo else "", "funzione": funzione, "etichetta": etichetta or colonna}
+                    widgets = db.get_dashboard_config(fid)
+                    widgets.append(w)
+                    db.save_dashboard_config(fid, widgets)
+                    msg("✅ Widget aggiunto")
+                    st.rerun()
+                else:
+                    msg("Seleziona una colonna", "warning")
+    st.divider()
+    st.markdown("#### Widget configurati")
+    widgets = db.get_dashboard_config(fid)
+    if widgets:
+        for i, w in enumerate(widgets):
+            cols = st.columns([1.5, 1.5, 1.5, 1.5, 0.8, 0.5])
+            with cols[0]: st.markdown(f"**{w.get('etichetta', w.get('colonna', ''))}**")
+            with cols[1]: st.caption(f"Tipo: {w['tipo']}")
+            with cols[2]: st.caption(f"Colonna: {w['colonna']}")
+            with cols[3]: st.caption(f"Gruppo: {w.get('colonna_gruppo', '—')} / Funz: {w.get('funzione', 'count')}")
+            with cols[4]:
+                up = i > 0 and st.button("⬆", key=f"dw_up_{i}")
+                dn = i < len(widgets) - 1 and st.button("⬇", key=f"dw_dn_{i}")
+                if up:
+                    widgets[i-1], widgets[i] = widgets[i], widgets[i-1]
+                    db.save_dashboard_config(fid, widgets)
+                    st.rerun()
+                if dn:
+                    widgets[i], widgets[i+1] = widgets[i+1], widgets[i]
+                    db.save_dashboard_config(fid, widgets)
+                    st.rerun()
+            with cols[5]:
+                if st.button("🗑️", key=f"dw_del_{i}"):
+                    widgets.pop(i)
+                    db.save_dashboard_config(fid, widgets)
+                    st.rerun()
+    else:
+        st.info("Nessun widget configurato. Usa il form sopra per aggiungerne.")
 
 # ── CONFIGURA STATI (Kanban) ────────────────────────────────────
 elif st.session_state.pagina == "configura_stati":

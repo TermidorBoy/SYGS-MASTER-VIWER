@@ -717,6 +717,10 @@ def init_stati_table(file_id: int):
         conn.execute("ALTER TABLE file_config ADD COLUMN colonna_data_calendario TEXT DEFAULT ''")
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE file_config ADD COLUMN dashboard_config TEXT DEFAULT '[]'")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -724,24 +728,38 @@ def init_stati_table(file_id: int):
 def get_file_config(file_id: int):
     init_stati_table(file_id)
     conn = get_conn()
-    row = conn.execute("SELECT colonna_stato, colonna_titolo, colonna_data_calendario FROM file_config WHERE file_id = ?", (file_id,)).fetchone()
+    row = conn.execute("SELECT colonna_stato, colonna_titolo, colonna_data_calendario, dashboard_config FROM file_config WHERE file_id = ?", (file_id,)).fetchone()
     conn.close()
     if row:
         return dict(row)
-    return {"colonna_stato": "", "colonna_titolo": "", "colonna_data_calendario": ""}
+    return {"colonna_stato": "", "colonna_titolo": "", "colonna_data_calendario": "", "dashboard_config": "[]"}
 
 
-def save_file_config(file_id: int, colonna_stato: str = "", colonna_titolo: str = "", colonna_data_calendario: str = ""):
+def save_file_config(file_id: int, colonna_stato: str = "", colonna_titolo: str = "", colonna_data_calendario: str = "", dashboard_config: str = "[]"):
     init_stati_table(file_id)
     conn = get_conn()
     conn.execute("""
-        INSERT INTO file_config (file_id, colonna_stato, colonna_titolo, colonna_data_calendario)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO file_config (file_id, colonna_stato, colonna_titolo, colonna_data_calendario, dashboard_config)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(file_id)
-        DO UPDATE SET colonna_stato=excluded.colonna_stato, colonna_titolo=excluded.colonna_titolo, colonna_data_calendario=excluded.colonna_data_calendario
-    """, (file_id, colonna_stato, colonna_titolo, colonna_data_calendario))
+        DO UPDATE SET colonna_stato=excluded.colonna_stato, colonna_titolo=excluded.colonna_titolo, colonna_data_calendario=excluded.colonna_data_calendario, dashboard_config=excluded.dashboard_config
+    """, (file_id, colonna_stato, colonna_titolo, colonna_data_calendario, dashboard_config))
     conn.commit()
     conn.close()
+
+
+def get_dashboard_config(file_id: int) -> list:
+    import json
+    cfg = get_file_config(file_id)
+    try:
+        return json.loads(cfg.get("dashboard_config", "[]"))
+    except Exception:
+        return []
+
+
+def save_dashboard_config(file_id: int, widgets: list):
+    import json
+    save_file_config(file_id, dashboard_config=json.dumps(widgets))
 
 
 def get_stati_config(file_id: int, solo_kanban: bool = False):
