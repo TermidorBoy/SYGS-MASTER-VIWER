@@ -837,11 +837,7 @@ def ricrea_tabella_da_config(file_id: int) -> list:
                 safe_list.append(safe)
                 cols_def.append(f'"{safe}" TEXT')
             conn.execute(f"DROP TABLE IF EXISTS [{table}]")
-            try:
-                conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
-            except Exception as e:
-                conn.close()
-                raise RuntimeError(f"CREATE TABLE failed: {e}\ncols_def={cols_def}") from e
+            conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
             conn.commit()
             conn.close()
             _ricrea_campi_config_basic(file_id, safe_list)
@@ -857,11 +853,7 @@ def ricrea_tabella_da_config(file_id: int) -> list:
         sql_type = "REAL" if r["tipo_campo"] == "number" else "TEXT"
         cols_def.append(f'"{safe}" {sql_type}')
     conn.execute(f"DROP TABLE IF EXISTS [{table}]")
-    try:
-        conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
-    except Exception as e:
-        conn.close()
-        raise RuntimeError(f"CREATE TABLE failed: {e}\ncols_def={cols_def}") from e
+    conn.execute(f'CREATE TABLE [{table}] (id INTEGER PRIMARY KEY AUTOINCREMENT, creato_da INTEGER, creato_il TIMESTAMP DEFAULT CURRENT_TIMESTAMP, {", ".join(cols_def)})')
     conn.commit()
     conn.close()
     return safe_cols

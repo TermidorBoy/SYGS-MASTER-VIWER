@@ -761,7 +761,17 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     db.migra_tabella(fid)
     df = db.carica_dati(fid)
     if df is None:
-        db.ricrea_tabella_da_config(fid)
+        try:
+            db.ricrea_tabella_da_config(fid)
+        except Exception as _re:
+            st.error(f"Errore ricreazione tabella: {_re}")
+            if st.button("Torna alla dashboard"):
+                cambia_pagina("dashboard")
+            if st.button("Elimina questo file"):
+                db.elimina_file(fid)
+                msg("File eliminato")
+                cambia_pagina("dashboard")
+            st.stop()
         df = db.carica_dati(fid)
     if df is None:
         st.error("Impossibile caricare i dati per questo file. Il file potrebbe essere danneggiato.")
