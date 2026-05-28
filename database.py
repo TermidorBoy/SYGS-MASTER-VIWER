@@ -82,6 +82,27 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
         conn.execute("ALTER TABLE campi_config ADD COLUMN valore_predefinito TEXT")
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE campi_config ADD COLUMN validazione_unico INTEGER DEFAULT 0")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE campi_config ADD COLUMN validazione_min TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE campi_config ADD COLUMN validazione_max TEXT")
+    except Exception:
+        pass
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS filtri_salvati (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            nome TEXT NOT NULL,
+            filtri TEXT NOT NULL,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS permessi_file (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -447,10 +468,101 @@ def init_campi_config(file_id: int, colonne: list):
     conn.close()
 
 
+def prossimo_valore_auto(file_id: int, nome_campo: str) -> int:
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    row = conn.execute(f'SELECT MAX(CAST("{nome_campo}" AS INTEGER)) as mx FROM [{table}]').fetchone()
+    conn.close()
+    return (row["mx"] or 0) + 1
+
+
+def duplica_record(file_id: int, record_id: int, utente_id: int = None) -> int:
+    conn = get_conn()
+    table = f"dati_{file_id}"
+    row = conn.execute(f"SELECT * FROM [{table}] WHERE id = ?", (record_id,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+    d = dict(row)
+    d.pop("id", None)
+    d.pop("creato_il", None)
+    d["creato_da"] = utente_id
+    cols = ", ".join(f'"{k}"' for k in d)
+    placeholders = ", ".join(["?" for _ in d])
+    cur = conn.execute(f"INSERT INTO [{table}] ({cols}) VALUES ({placeholders})", list(d.values()))
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id
+
+
+def salva_validazione(file_id: int, nome_campo: str, unico: bool = False, minimo: str = None, massimo: str = None):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE campi_config SET validazione_unico=?, validazione_min=?, validazione_max=?
+        WHERE file_id=? AND nome_campo=?
+    """, (1 if unico else 0, minimo, massimo, file_id, nome_campo))
+    conn.commit()
+    conn.close()
+
+
+def get_validazioni(file_id: int) -> dict:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT nome_campo, validazione_unico, validazione_min, validazione_max FROM campi_config WHERE file_id=?",
+        (file_id,),
+    ).fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        result[r["nome_campo"]] = {
+            "unico": bool(r["validazione_unico"]),
+            "min": r["validazione_min"],
+            "max": r["validazione_max"],
+        }
+    return result
+
+
+def valida_record(file_id: int, valori: dict, exclude_id: int = None) -> list:
+    validazioni = get_validazioni(file_id)
+    errori = []
+    campi = get_campi_config(file_id)
+    campi_map = {c["nome_campo"]: c for c in campi}
+    for campo, v in valori.items():
+        cfg = campi_map.get(campo, {})
+        val = str(v) if v is not None and v != "" else ""
+        if cfg.get("obbligatorio"):
+            if not val.strip():
+                errori.append(f"'{campo}' e obbligatorio")
+        if cfg.get("validazione_unico") and val.strip():
+            conn = get_conn()
+            table = f"dati_{file_id}"
+            if exclude_id:
+                row = conn.execute(f'SELECT id FROM [{table}] WHERE "{campo}"=? AND id!=?', (val, exclude_id)).fetchone()
+            else:
+                row = conn.execute(f'SELECT id FROM [{table}] WHERE "{campo}"=?', (val,)).fetchone()
+            conn.close()
+            if row:
+                errori.append(f"'{campo}' deve essere unico (gia usato da #{row['id']})")
+        if cfg.get("validazione_min") and val.strip():
+            try:
+                if float(val) < float(cfg["validazione_min"]):
+                    errori.append(f"'{campo}' minimo {cfg['validazione_min']}")
+            except ValueError:
+                pass
+        if cfg.get("validazione_max") and val.strip():
+            try:
+                if float(val) > float(cfg["validazione_max"]):
+                    errori.append(f"'{campo}' massimo {cfg['validazione_max']}")
+            except ValueError:
+                pass
+    return errori
+
+
 def get_campi_config(file_id: int):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, nome_campo, tipo_campo, obbligatorio, opzioni, mostra_modulo, valore_predefinito FROM campi_config WHERE file_id = ? ORDER BY ordine",
+        "SELECT id, nome_campo, tipo_campo, obbligatorio, opzioni, mostra_modulo, valore_predefinito, validazione_unico, validazione_min, validazione_max FROM campi_config WHERE file_id = ? ORDER BY ordine",
         (file_id,),
     ).fetchall()
     conn.close()
@@ -462,6 +574,7 @@ def get_campi_config(file_id: int):
             d["opzioni"] = json.loads(d["opzioni"])
         d["obbligatorio"] = bool(d["obbligatorio"])
         d["mostra_modulo"] = bool(d["mostra_modulo"])
+        d["validazione_unico"] = bool(d["validazione_unico"]) if d["validazione_unico"] else False
         result.append(d)
     return result
 
@@ -934,5 +1047,35 @@ def save_transizione(file_id: int, stato_da: str, stato_a: str, azione_tipo: str
 def elimina_transizione(tid: int):
     conn = get_conn()
     conn.execute("DELETE FROM transizioni WHERE id = ?", (tid,))
+    conn.commit()
+    conn.close()
+
+
+# ── Filtri salvati ──
+def salva_filtro_salvato(file_id: int, nome: str, filtri: list):
+    conn = get_conn()
+    import json
+    conn.execute("INSERT INTO filtri_salvati (file_id, nome, filtri) VALUES (?, ?, ?)",
+                 (file_id, nome, json.dumps(filtri)))
+    conn.commit()
+    conn.close()
+
+
+def get_filtri_salvati(file_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute("SELECT id, nome, filtri FROM filtri_salvati WHERE file_id = ? ORDER BY nome", (file_id,)).fetchall()
+    conn.close()
+    result = []
+    import json
+    for r in rows:
+        d = dict(r)
+        d["filtri"] = json.loads(d["filtri"])
+        result.append(d)
+    return result
+
+
+def elimina_filtro_salvato(fid_salvato: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM filtri_salvati WHERE id = ?", (fid_salvato,))
     conn.commit()
     conn.close()

@@ -90,6 +90,9 @@ INIT = {
     "file_id": None, "filtri": [], "ricerca": "",
     "modifica_id": None, "vedi_id": None, "visuale": "tabella",
     "modifiche_pendenti": [], "formula_mode": False,
+    "sort_col": "", "sort_dir": "asc", "filtri_salvati": {},
+    "selezionati_multipla": [], "mostra_edita_multipla": False,
+    "modulo_idx": 0, "_modulo_fid": None,
 }
 for k, v in INIT.items():
     if k not in st.session_state:
@@ -581,8 +584,8 @@ elif st.session_state.pagina == "carica":
     st.markdown('<div class="page-title">Carica file Excel</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Importa un file Excel nel database</div>', unsafe_allow_html=True)
 
-    uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed",
-                                help="Carica un file con dati, oppure un file vuoto (solo intestazioni) per creare uno schema da compilare nell'app.")
+    uploaded = st.file_uploader("Carica file Excel / CSV", type=["xlsx", "xls", "csv"], label_visibility="collapsed",
+                                help="Carica un file Excel (.xlsx/.xls) o CSV (.csv), oppure un file vuoto (solo intestazioni) per creare uno schema da compilare nell'app.")
 
     if uploaded:
         nome = uploaded.name
@@ -604,7 +607,11 @@ elif st.session_state.pagina == "carica":
                 import io as _io
                 contenuto = st.session_state.upload_bytes
                 buf = _io.BytesIO(contenuto)
-                df = leggi_excel_con_formule(buf)
+                is_csv = nome.lower().endswith(".csv")
+                if is_csv:
+                    df = pd.read_csv(buf)
+                else:
+                    df = leggi_excel_con_formule(buf)
                 colonne = list(df.columns) if not df.empty else []
                 if not colonne:
                     msg("Il file non ha colonne", "error")
@@ -724,7 +731,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         errori = {}
         for cfg in campi_config:
             c = cfg["nome_campo"]
-            if c not in colonne_dati:
+            if c not in colonne_dati or (is_new and cfg.get("tipo_campo") == "auto_number"):
                 continue
             tipo = cfg["tipo_campo"]
             dv = rec[c] if rec is not None and pd.notna(rec[c]) else cfg.get("valore_predefinito")
@@ -740,7 +747,10 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             etichetta = f"{c} *" if obbl else c
             opts = cfg.get("opzioni") or []
 
-            if tipo == "number":
+            if tipo == "auto_number":
+                vals[c] = st.text_input(etichetta, value=str(dv) if dv is not None else "",
+                                        disabled=True, key=f"f_{c}")
+            elif tipo == "number":
                 vals[c] = st.number_input(etichetta, value=float(dv) if dv is not None else None, step=0.01, format="%f", key=f"f_{c}")
             elif tipo == "date":
                 vals[c] = st.date_input(etichetta, value=pd.to_datetime(dv) if dv is not None else None, key=f"f_{c}")
@@ -779,8 +789,23 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                         safe_vals[c] = None
                     elif isinstance(v, bool):
                         safe_vals[c] = 1 if v else 0
-                    else:
+                    elif v is not None:
                         safe_vals[c] = v
+                # Auto-numero (#4)
+                for cfg in campi_config:
+                    if cfg.get("tipo_campo") == "auto_number" and is_new:
+                        safe_vals[cfg["nome_campo"]] = db.prossimo_valore_auto(fid, cfg["nome_campo"])
+                # Validazione campi (#7)
+                try:
+                    if is_new:
+                        errori_val = db.valida_record(fid, safe_vals)
+                    else:
+                        errori_val = db.valida_record(fid, safe_vals, exclude_id=st.session_state.modifica_id)
+                    if errori_val:
+                        msg("; ".join(errori_val), "error")
+                        st.rerun()
+                except Exception:
+                    pass
                 if is_new:
                     new_id = db.aggiungi_record(fid, safe_vals, st.session_state.utente["id"])
                     db.log_azione(fid, new_id, st.session_state.utente["id"], "creato", "Record creato")
@@ -815,13 +840,20 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             v = "—" if pd.isna(v) else v
             st.markdown(f"**{c}:** {v}")
         st.divider()
-        ce1, ce2, ce3 = st.columns([1, 1, 1])
+        ce1, ce2, ce3, ce4 = st.columns([1, 1, 1, 1])
         with ce1:
             if puo_modificare and st.button("Modifica", use_container_width=True):
                 st.session_state.modifica_id = rid
                 st.session_state.pagina = "modifica_record"
                 st.rerun()
         with ce2:
+            if puo_modificare and st.button("Duplica", use_container_width=True):
+                new_id = db.duplica_record(fid, rid, st.session_state.utente["id"])
+                if new_id:
+                    db.log_azione(fid, new_id, st.session_state.utente["id"], "creato", f"Duplicato da #{rid}")
+                    msg(f"Record #{rid} duplicato come #{new_id}")
+                    st.rerun()
+        with ce3:
             if puo_modificare and st.button("Elimina", use_container_width=True):
                 ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
                 if ok:
@@ -830,7 +862,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 else:
                     msg(err, "error")
                 st.rerun()
-        with ce3:
+        with ce4:
             if st.button("Indietro", use_container_width=True):
                 st.session_state.pagina = "vedi_file"
                 st.rerun()
@@ -848,7 +880,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([1.5, 0.4, 0.4, 0.5, 0.5, 0.4, 0.7, 1.3])
+    tb = st.columns([1.5, 0.4, 0.4, 0.5, 0.5, 0.4, 0.4, 1])
     with tb[0]:
         s = st.text_input("", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
@@ -885,7 +917,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.mostra_log = not st.session_state.get("mostra_log", False)
             st.rerun()
     with tb[7]:
-        v_opts = {"Tabella": "tabella", "Kanban": "kanban", "Calendario": "calendario", "Lista": "lista", "Dashboard": "dashboard", "Pivot": "pivot"}
+        v_opts = {"Tabella": "tabella", "Kanban": "kanban", "Calendario": "calendario", "Lista": "lista", "Modulo": "modulo", "Dashboard": "dashboard", "Pivot": "pivot"}
         cur = st.session_state.visuale
         sel = st.selectbox("", list(v_opts.keys()),
                            index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
@@ -893,6 +925,31 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         if v_opts[sel] != cur:
             st.session_state.visuale = v_opts[sel]
             st.rerun()
+
+    # ── ORDINA PER COLONNA (#8) ──
+    so1, so2, so3 = st.columns([1, 1, 8])
+    with so1:
+        sort_cols = [""] + colonne_dati
+        cur_sort = st.session_state.sort_col
+        new_sort = st.selectbox("", sort_cols,
+                                index=sort_cols.index(cur_sort) if cur_sort in sort_cols else 0,
+                                key="sort_col_sel", label_visibility="collapsed",
+                                help="Ordina per colonna")
+    with so2:
+        if st.session_state.sort_col:
+            cur_dir = st.session_state.sort_dir
+            new_dir = st.selectbox("", ["asc", "desc"],
+                                   index=0 if cur_dir == "asc" else 1,
+                                   key="sort_dir_sel", label_visibility="collapsed",
+                                   help="Direzione ordinamento")
+        else:
+            new_dir = "asc"
+    if new_sort != cur_sort:
+        st.session_state.sort_col = new_sort
+        st.rerun()
+    if cur_sort and new_dir != st.session_state.sort_dir:
+        st.session_state.sort_dir = new_dir
+        st.rerun()
 
     # ── FILTRI MULTIPLI ──
     if st.session_state.filtri:
@@ -925,6 +982,46 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 st.session_state.filtri[idx]["valore"] = val
                 st.rerun()
 
+    # ── FILTRI SALVATI (#6) ──
+    fs1, fs2, fs3, fs4 = st.columns([1, 1, 1, 6])
+    with fs1:
+        if st.button("Salva filtri", type="tertiary", key="btn_salva_filtri"):
+            st.session_state._fs_salva = True
+            st.rerun()
+    with fs2:
+        if st.button("Carica filtri", type="tertiary", key="btn_carica_filtri"):
+            st.session_state._fs_carica = not st.session_state.get("_fs_carica", False)
+            st.rerun()
+    with fs3:
+        filtri_salvati_list = db.get_filtri_salvati(fid)
+        if filtri_salvati_list and st.button("Cancella filtri", type="tertiary", key="btn_cancella_filtri"):
+            st.session_state._fs_elimina = True
+            st.rerun()
+    if st.session_state.get("_fs_salva"):
+        nome_fs = st.text_input("Nome filtro salvato", key="fs_nome", label_visibility="collapsed",
+                                placeholder="Nome del filtro...")
+        if nome_fs:
+            db.salva_filtro_salvato(fid, nome_fs, st.session_state.filtri)
+            st.toast(f"Filtro '{nome_fs}' salvato")
+            st.session_state._fs_salva = False
+            st.rerun()
+    if st.session_state.get("_fs_carica", False):
+        opts = {f["nome"]: f for f in filtri_salvati_list}
+        scelto = st.selectbox("", [""] + list(opts.keys()), key="fs_carica_sel", label_visibility="collapsed")
+        if scelto and scelto in opts:
+            st.session_state.filtri = opts[scelto]["filtri"]
+            st.session_state._fs_carica = False
+            st.toast(f"Filtro '{scelto}' caricato")
+            st.rerun()
+    if st.session_state.get("_fs_elimina"):
+        opts = {f["nome"]: f["id"] for f in filtri_salvati_list}
+        scelto = st.selectbox("", [""] + list(opts.keys()), key="fs_elimina_sel", label_visibility="collapsed")
+        if scelto and scelto in opts:
+            db.elimina_filtro_salvato(opts[scelto])
+            st.toast(f"Filtro '{scelto}' eliminato")
+            st.session_state._fs_elimina = False
+            st.rerun()
+
     # ── APPLICA FILTRI ──
     view_df = df
     if st.session_state.ricerca:
@@ -937,6 +1034,15 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         v = filtro.get("valore", "")
         if c and v and v != "(Tutti)" and c in view_df.columns:
             view_df = view_df[view_df[c].astype(str) == v]
+
+    # ── ORDINA PER COLONNA (#8) ──
+    sort_col = st.session_state.sort_col
+    sort_dir = st.session_state.sort_dir
+    if sort_col and sort_col in view_df.columns:
+        try:
+            view_df = view_df.sort_values(by=sort_col, ascending=(sort_dir == "asc"), na_position="last")
+        except Exception:
+            pass
 
     # ── GRAFICO RAPIDO ──
     if st.session_state.get("mostra_grafico", False):
@@ -1149,51 +1255,82 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             hide_index=True,
             column_config={"id": "ID"},
             on_select="rerun",
-            selection_mode="single-row",
+            selection_mode="multi-row",
         )
 
         # ── ACTIONS ──
         if ev.selection and ev.selection.rows:
-            sel_idx = view_df.index[ev.selection.rows[0]]
-            sel = view_df.loc[sel_idx]
-            rid = int(sel["id"])
+            n_sel = len(ev.selection.rows)
+            if n_sel == 1:
+                sel_idx = view_df.index[ev.selection.rows[0]]
+                sel = view_df.loc[sel_idx]
+                rid = int(sel["id"])
 
-            st.divider()
-            st.markdown(f"**Record #{rid}** selezionato")
-            # preview (show computed values if formula mode is on)
-            if st.session_state.formula_mode:
-                sel_display = aplicar_formulas(pd.DataFrame([sel]), display_cols).iloc[0]
-            else:
-                sel_display = sel
-            preview = sel_display[display_cols[:min(4, len(display_cols))]]
-            for c, v in preview.items():
-                v = "—" if pd.isna(v) else v
-                st.markdown(f"**{c}:** {v}")
-            if len(display_cols) > 4:
-                st.caption(f"+ {len(display_cols) - 4} campi")
+                st.divider()
+                st.markdown(f"**Record #{rid}** selezionato")
+                if st.session_state.formula_mode:
+                    sel_display = aplicar_formulas(pd.DataFrame([sel]), display_cols).iloc[0]
+                else:
+                    sel_display = sel
+                preview = sel_display[display_cols[:min(4, len(display_cols))]]
+                for c, v in preview.items():
+                    v = "—" if pd.isna(v) else v
+                    st.markdown(f"**{c}:** {v}")
+                if len(display_cols) > 4:
+                    st.caption(f"+ {len(display_cols) - 4} campi")
 
-            ac1, ac2, ac3 = st.columns([1, 1, 8])
-            with ac1:
-                if st.button("Vedi", use_container_width=True):
-                    st.session_state.vedi_id = rid
-                    st.session_state.pagina = "dettaglio_record"
+                ac1, ac2, ac3, ac4 = st.columns([1, 1, 1, 6])
+                with ac1:
+                    if st.button("Vedi", use_container_width=True):
+                        st.session_state.vedi_id = rid
+                        st.session_state.pagina = "dettaglio_record"
+                        st.rerun()
+                with ac2:
+                    if puo_modificare and st.button("Modifica", use_container_width=True):
+                        st.session_state.modifica_id = rid
+                        st.session_state.pagina = "modifica_record"
+                        st.rerun()
+                with ac3:
+                    if puo_modificare and st.button("Duplica", use_container_width=True, help="Crea copia del record"):
+                        new_id = db.duplica_record(fid, rid, st.session_state.utente["id"])
+                        if new_id:
+                            db.log_azione(fid, new_id, st.session_state.utente["id"], "creato", f"Duplicato da #{rid}")
+                            msg(f"Record #{rid} duplicato come #{new_id}")
+                            st.rerun()
+                with ac4:
+                    if puo_modificare and st.button("Elimina", use_container_width=True):
+                        ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
+                        if ok:
+                            db.log_azione(fid, rid, st.session_state.utente["id"], "eliminato", "Record eliminato")
+                            msg(f" Record #{rid} eliminato")
+                        else:
+                            msg(err, "error")
+                        st.rerun()
+            elif n_sel > 1:
+                # ── EDIT MULTIPLA (#1) ──
+                rids = [int(view_df.iloc[view_df.index[ev.selection.rows[i]]["id"]])
+                        for i in range(n_sel)]
+                st.divider()
+                st.markdown(f"**{n_sel} record selezionati**")
+                if st.button("Annulla selezione", use_container_width=False):
                     st.rerun()
-            with ac2:
-                if puo_modificare and st.button("Modifica", use_container_width=True):
-                    st.session_state.modifica_id = rid
-                    st.session_state.pagina = "modifica_record"
-                    st.rerun()
-            with ac3:
-                if puo_modificare and st.button("Elimina", use_container_width=True):
-                    ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
-                    if ok:
-                        db.log_azione(fid, rid, st.session_state.utente["id"], "eliminato", "Record eliminato")
-                        msg(f" Record #{rid} eliminato")
-                    else:
-                        msg(err, "error")
-                    st.rerun()
+                st.markdown("#### Edita multipla")
+                st.caption("Modifica un campo per tutti i record selezionati")
+                with st.form("edita_multipla", border=False):
+                    campo_da_modificare = st.selectbox("Campo da modificare", [""] + colonne_dati, key="em_campo")
+                    nuovo_valore = st.text_input("Nuovo valore", key="em_valore", placeholder="Valore da impostare")
+                    if st.form_submit_button("Applica a tutti", use_container_width=True, type="primary"):
+                        if campo_da_modificare and nuovo_valore:
+                            for rid_em in rids:
+                                db.aggiorna_record(fid, rid_em, {campo_da_modificare: nuovo_valore})
+                                db.log_azione(fid, rid_em, st.session_state.utente["id"], "modificato",
+                                              f"Edita multipla: {campo_da_modificare} = {nuovo_valore}")
+                            msg(f"Campo '{campo_da_modificare}' aggiornato per {len(rids)} record")
+                            st.rerun()
+                        else:
+                            msg("Seleziona campo e inserisci valore", "warning")
         else:
-            st.info("Seleziona una riga per vedere le azioni")
+            st.info("Seleziona una o piu righe per le azioni")
 
     # ── LISTA ────────────────────────────────────────────────────
     if st.session_state.visuale == "lista":
@@ -1204,23 +1341,66 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             view_df_display = view_df
         for idx in view_df_display.index:
             rec = view_df_display.loc[idx]
-            cols = st.columns([0.3, 3, 1, 0.5])
+            rid_l = int(rec['id'])
+            cols = st.columns([0.3, 3, 0.8, 0.8, 0.5])
             with cols[0]:
-                st.caption(f"#{int(rec['id'])}")
+                st.caption(f"#{rid_l}")
             with cols[1]:
                 preview = " | ".join(str(rec[c]) for c in display_cols[:3] if pd.notna(rec[c]))
                 st.markdown(preview)
             with cols[2]:
-                if st.button("Vedi", key=f"l_vedi_{int(rec['id'])}"):
-                    st.session_state.vedi_id = int(rec["id"])
+                if st.button("Vedi", key=f"l_vedi_{rid_l}"):
+                    st.session_state.vedi_id = rid_l
                     st.session_state.pagina = "dettaglio_record"
                     st.rerun()
             with cols[3]:
-                if puo_modificare and st.button("Modifica", key=f"l_mod_{int(rec['id'])}"):
-                    st.session_state.modifica_id = int(rec["id"])
+                if puo_modificare and st.button("Modifica", key=f"l_mod_{rid_l}"):
+                    st.session_state.modifica_id = rid_l
                     st.session_state.pagina = "modifica_record"
                     st.rerun()
+            with cols[4]:
+                if puo_modificare and st.button("Dup", key=f"l_dup_{rid_l}", help="Duplica"):
+                    new_id = db.duplica_record(fid, rid_l, st.session_state.utente["id"])
+                    if new_id:
+                        db.log_azione(fid, new_id, st.session_state.utente["id"], "creato", f"Duplicato da #{rid_l}")
+                        msg(f"Record #{rid_l} duplicato come #{new_id}")
+                        st.rerun()
             st.divider()
+
+    # ── VISTA MODULO (#5) ──
+    if st.session_state.visuale == "modulo":
+        record_ids = list(view_df["id"].values)
+        if "modulo_idx" not in st.session_state or st.session_state.get("_modulo_fid") != fid:
+            st.session_state.modulo_idx = 0
+            st.session_state._modulo_fid = fid
+        idx = st.session_state.modulo_idx
+        if idx >= len(record_ids):
+            idx = 0
+            st.session_state.modulo_idx = 0
+        if record_ids:
+            rid_m = record_ids[idx]
+            rec_m = view_df[view_df["id"] == rid_m].iloc[0]
+            st.markdown(f"#### Record #{rid_m}  ({idx+1}/{len(record_ids)})")
+            for c in colonne_dati:
+                v = rec_m[c]
+                v = "—" if pd.isna(v) else v
+                st.markdown(f"**{c}:** {v}")
+            nav1, nav2, nav3 = st.columns([1, 1, 6])
+            with nav1:
+                if st.button("Precedente", use_container_width=True, disabled=(idx == 0)):
+                    st.session_state.modulo_idx -= 1
+                    st.rerun()
+            with nav2:
+                if st.button("Successivo", use_container_width=True, disabled=(idx >= len(record_ids) - 1)):
+                    st.session_state.modulo_idx += 1
+                    st.rerun()
+            with nav3:
+                if puo_modificare and st.button("Nuovo", use_container_width=True):
+                    st.session_state.pagina = "aggiungi_record"
+                    st.rerun()
+        else:
+            st.info("Nessun record da mostrare in vista modulo.")
+        st.stop()
 
     # ── PIVOT ────────────────────────────────────────────────────
     if st.session_state.visuale == "pivot":
@@ -1347,7 +1527,7 @@ elif st.session_state.pagina == "configura_campi":
         with st.expander("Aggiungi colonna"):
             with st.form("nuova_colonna", border=False):
                 c_nome = st.text_input("Nome colonna", placeholder="Nuovo campo")
-                c_tipo = st.selectbox("Tipo", ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"])
+                c_tipo = st.selectbox("Tipo", ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean", "auto_number"])
                 if st.form_submit_button("Accoda", use_container_width=True):
                     if c_nome.strip():
                         st.session_state.modifiche_pendenti.append({"tipo": "aggiungi", "nome": c_nome.strip(), "tipo_campo": c_tipo})
@@ -1393,6 +1573,18 @@ elif st.session_state.pagina == "configura_campi":
                         try:
                             if m["tipo"] == "aggiorna":
                                 db.aggiorna_campo_config(m["config_id"], tipo_campo=m["tipo_campo"], obbligatorio=m["obbl"], opzioni=m.get("opzioni"), mostra_modulo=m["mostra"], valore_predefinito=m.get("default"))
+                                # Save validazione if provided
+                                if "unico" in m or "valid_min" in m or "valid_max" in m:
+                                    unico_v = m.get("unico", False)
+                                    min_v = m.get("valid_min")
+                                    max_v = m.get("valid_max")
+                                    # get the nome_campo for this config_id
+                                    cfield = next((c for c in campi if c["id"] == m["config_id"]), None)
+                                    if cfield:
+                                        db.salva_validazione(fid, cfield["nome_campo"],
+                                                             unico=unico_v,
+                                                             minimo=min_v if min_v else None,
+                                                             massimo=max_v if max_v else None)
                             elif m["tipo"] == "rinomina":
                                 db.rinomina_colonna(fid, m["vecchio"], m["nuovo"])
                             elif m["tipo"] == "elimina":
@@ -1411,21 +1603,21 @@ elif st.session_state.pagina == "configura_campi":
         st.divider()
 
     # Header
-    hdr = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
-    for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Opzioni/Default", "", ""]):
+    hdr = st.columns([1.3, 1.2, 0.5, 0.5, 0.5, 1.2, 0.5, 0.4])
+    for h, label in zip(hdr, ["Campo", "Tipo", "Obbl.", "Form", "Unico", "Opzioni/Default", "", ""]):
         with h:
             st.markdown(f"**{label}**" if label else "")
 
     for campo in campi:
         with st.container():
-            cols = st.columns([1.5, 1.3, 0.6, 0.6, 1.5, 0.5, 0.4])
+            cols = st.columns([1.3, 1.2, 0.5, 0.5, 0.5, 1.2, 0.5, 0.4])
             with cols[0]:
                 nuovo_nome = st.text_input("Nome", value=campo["nome_campo"], key=f"nome_{campo['id']}", label_visibility="collapsed")
             with cols[1]:
                 tipo = st.selectbox(
                     "Tipo",
-                    ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"],
-                    index=["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"].index(campo["tipo_campo"]) if campo["tipo_campo"] in ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean"] else 0,
+                    ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean", "auto_number"],
+                    index=["text", "text_area", "number", "date", "single_select", "multi_select", "boolean", "auto_number"].index(campo["tipo_campo"]) if campo["tipo_campo"] in ["text", "text_area", "number", "date", "single_select", "multi_select", "boolean", "auto_number"] else 0,
                     key=f"tipo_{campo['id']}",
                     label_visibility="collapsed",
                 )
@@ -1434,6 +1626,10 @@ elif st.session_state.pagina == "configura_campi":
             with cols[3]:
                 mostra = st.checkbox("Mostra nel form", value=campo["mostra_modulo"], key=f"mostra_{campo['id']}", label_visibility="collapsed")
             with cols[4]:
+                unico = st.checkbox("Unico", value=campo.get("validazione_unico", False),
+                                    key=f"unico_{campo['id']}", label_visibility="collapsed",
+                                    help="Impedisce valori duplicati")
+            with cols[5]:
                 is_select = tipo in ("single_select", "multi_select")
                 if is_select:
                     opts_key = f"opts_{campo['id']}"
@@ -1452,14 +1648,28 @@ elif st.session_state.pagina == "configura_campi":
                                              key=opts_key, label_visibility="collapsed",
                                              placeholder="Opz1, Opz2, ...")
                 else:
-                    dv = campo.get("valore_predefinito") or ""
-                    opts_str = st.text_input("Default", value=dv,
-                                             key=f"def_{campo['id']}", label_visibility="collapsed",
-                                             placeholder="Valore default")
-            with cols[5]:
+                    tmp = campo.get("valore_predefinito") or ""
+                    dv_key = f"def_{campo['id']}"
+                    min_key = f"min_{campo['id']}"
+                    max_key = f"max_{campo['id']}"
+                    tmp_dv = st.text_input("Default", value=tmp, key=dv_key, label_visibility="collapsed",
+                                            placeholder="Valore default")
+                    if tipo == "number":
+                        tmp_min = campo.get("validazione_min") or ""
+                        tmp_max = campo.get("validazione_max") or ""
+                        tmp_min_v = st.text_input("Min", value=tmp_min, key=min_key, label_visibility="collapsed",
+                                                   placeholder="Min")
+                        tmp_max_v = st.text_input("Max", value=tmp_max, key=max_key, label_visibility="collapsed",
+                                                   placeholder="Max")
+                    else:
+                        dv_opts = tmp
+                        opts_str = tmp_dv
+            with cols[6]:
                 if st.button("Accoda", key=f"queue_{campo['id']}", help="Accoda modifica"):
                     new_opzioni = None
                     new_default = None
+                    valid_min = None
+                    valid_max = None
                     if is_select:
                         if opts_str and opts_str.strip():
                             new_opzioni = [o.strip() for o in opts_str.split(",")]
@@ -1471,12 +1681,18 @@ elif st.session_state.pagina == "configura_campi":
                                 if not new_opzioni:
                                     new_opzioni = [" "]
                     else:
-                        new_default = opts_str.strip() if opts_str and opts_str.strip() else None
+                        if tipo == "number":
+                            new_default = tmp_dv.strip() if tmp_dv and tmp_dv.strip() else None
+                            valid_min = tmp_min_v.strip() if tmp_min_v and tmp_min_v.strip() else None
+                            valid_max = tmp_max_v.strip() if tmp_max_v and tmp_max_v.strip() else None
+                        else:
+                            new_default = opts_str.strip() if opts_str and opts_str.strip() else None
                     st.session_state.modifiche_pendenti.append({
                         "tipo": "aggiorna", "config_id": campo["id"],
                         "tipo_campo": tipo, "obbl": obbl, "mostra": mostra,
                         "opzioni": new_opzioni, "default": new_default,
                         "campo_old": campo["nome_campo"],
+                        "unico": unico, "valid_min": valid_min, "valid_max": valid_max,
                     })
                     if nuovo_nome.strip() and nuovo_nome.strip() != campo["nome_campo"]:
                         st.session_state.modifiche_pendenti.append({
