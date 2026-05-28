@@ -132,9 +132,9 @@ try:
     ADMIN_NOME = st.secrets["ADMIN_NOME"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 except (KeyError, AttributeError, Exception):
-    ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "s.galvis@setinstudio.com")
-    ADMIN_NOME = os.environ.get("ADMIN_NOME", "Sergio Galvis")
-    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "2385")
+    ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL")
+    ADMIN_NOME = os.environ.get("ADMIN_NOME")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
@@ -1352,7 +1352,7 @@ elif st.session_state.pagina == "utenti":
     utenti = db.lista_utenti()
     for ut in utenti:
         with st.expander(f"**{ut['nome']}** — {ut['email']} (`{ut['ruolo']}`)", expanded=False):
-            if ut["email"] == ADMIN_EMAIL:
+            if ADMIN_EMAIL and ut["email"] == ADMIN_EMAIL:
                 st.caption("Admin principale — non modificabile")
                 continue
             col_pw, col_file = st.columns([1, 2])
