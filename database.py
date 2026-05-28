@@ -136,6 +136,49 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
     conn.close()
 
 
+def log_azione(file_id, record_id, utente_id, azione, dettaglio=""):
+    conn = get_conn()
+    conn.execute("INSERT INTO log_modifiche (file_id, record_id, utente_id, azione, dettaglio) VALUES (?,?,?,?,?)",
+                 (file_id, record_id, utente_id, azione, dettaglio))
+    conn.commit()
+    conn.close()
+
+
+def get_log(file_id, limit=50):
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT l.*, u.nome as utente_nome
+        FROM log_modifiche l
+        LEFT JOIN utenti u ON u.id = l.utente_id
+        WHERE l.file_id = ?
+        ORDER BY l.created DESC
+        LIMIT ?
+    """, (file_id, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def aggiungi_commento(file_id, record_id, utente_id, testo):
+    conn = get_conn()
+    conn.execute("INSERT INTO commenti (file_id, record_id, utente_id, testo) VALUES (?,?,?,?)",
+                 (file_id, record_id, utente_id, testo))
+    conn.commit()
+    conn.close()
+
+
+def get_commenti(file_id, record_id):
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT c.*, u.nome as utente_nome
+        FROM commenti c
+        LEFT JOIN utenti u ON u.id = c.utente_id
+        WHERE c.file_id = ? AND c.record_id = ?
+        ORDER BY c.created ASC
+    """, (file_id, record_id)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ── Auth ──
 
 def get_utente_by_email(email: str):
@@ -410,7 +453,32 @@ def aggiorna_campo_config(config_id: int, tipo_campo: str = None, obbligatorio: 
         params.append(valore_predefinito)
     if sets:
         conn.execute(f"UPDATE campi_config SET {', '.join(sets)} WHERE id = ?", params + [config_id])
-        conn.commit()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS log_modifiche (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            record_id INTEGER,
+            utente_id INTEGER NOT NULL,
+            azione TEXT NOT NULL,
+            dettaglio TEXT,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE,
+            FOREIGN KEY (utente_id) REFERENCES utenti(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS commenti (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            record_id INTEGER NOT NULL,
+            utente_id INTEGER NOT NULL,
+            testo TEXT NOT NULL,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE,
+            FOREIGN KEY (utente_id) REFERENCES utenti(id) ON DELETE CASCADE
+        )
+    """)
+    conn.commit()
     conn.close()
 
 
@@ -647,7 +715,7 @@ def elimina_record(file_id: int, record_id: int, utente_id: int = None, ruolo: s
     return True, None
 
 
-def aggiungi_record(file_id: int, valori: dict, utente_id: int = None):
+def aggiungi_record(file_id: int, valori: dict, utente_id: int = None) -> int:
     conn = get_conn()
     extra_cols = []
     extra_vals = []
@@ -658,9 +726,11 @@ def aggiungi_record(file_id: int, valori: dict, utente_id: int = None):
     all_vals = list(valori.values()) + extra_vals
     cols = ", ".join(all_cols)
     placeholders = ", ".join(["?" for _ in all_vals])
-    conn.execute(f"INSERT INTO [dati_{file_id}] ({cols}) VALUES ({placeholders})", all_vals)
+    cur = conn.execute(f"INSERT INTO [dati_{file_id}] ({cols}) VALUES ({placeholders})", all_vals)
+    new_id = cur.lastrowid
     conn.commit()
     conn.close()
+    return new_id
 
 
 def esporta_excel(file_id: int, percorso: str):

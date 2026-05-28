@@ -87,7 +87,7 @@ st.markdown("""
 # ── Session State ───────────────────────────────────────────────
 INIT = {
     "pagina": "login", "utente": None, "msg": "", "msg_tipo": "success",
-    "file_id": None, "filtro_col": "", "filtro_val": "", "ricerca": "",
+    "file_id": None, "filtri": [], "ricerca": "",
     "modifica_id": None, "vedi_id": None, "visuale": "tabella",
     "modifiche_pendenti": [], "formula_mode": False,
 }
@@ -581,7 +581,8 @@ elif st.session_state.pagina == "carica":
     st.markdown('<div class="page-title">Carica file Excel</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-sub">Importa un file Excel nel database</div>', unsafe_allow_html=True)
 
-    uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed")
+    uploaded = st.file_uploader("Carica file Excel", type=["xlsx", "xls"], label_visibility="collapsed",
+                                help="Carica un file con dati, oppure un file vuoto (solo intestazioni) per creare uno schema da compilare nell'app.")
 
     if uploaded:
         nome = uploaded.name
@@ -781,10 +782,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                     else:
                         safe_vals[c] = v
                 if is_new:
-                    db.aggiungi_record(fid, safe_vals, st.session_state.utente["id"])
+                    new_id = db.aggiungi_record(fid, safe_vals, st.session_state.utente["id"])
+                    db.log_azione(fid, new_id, st.session_state.utente["id"], "creato", "Record creato")
                     msg("Record aggiunto")
                 else:
                     db.aggiorna_record(fid, st.session_state.modifica_id, safe_vals)
+                    db.log_azione(fid, st.session_state.modifica_id, st.session_state.utente["id"], "modificato", "Record modificato")
                     msg(f" Record #{st.session_state.modifica_id} aggiornato")
                 st.session_state.pagina = "vedi_file"
                 st.rerun()
@@ -831,10 +834,21 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             if st.button("Indietro", use_container_width=True):
                 st.session_state.pagina = "vedi_file"
                 st.rerun()
+        st.divider()
+        st.markdown("**Commenti**")
+        commenti = db.get_commenti(fid, rid)
+        for cm in commenti:
+            st.markdown(f"**{cm['utente_nome']}** ({cm['created'][:16]}): {cm['testo']}")
+        with st.form("nuovo_commento", border=False):
+            testo = st.text_area("", placeholder="Scrivi un commento...", label_visibility="collapsed")
+            if st.form_submit_button("Invia commento"):
+                if testo.strip():
+                    db.aggiungi_commento(fid, rid, st.session_state.utente["id"], testo.strip())
+                    st.rerun()
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([1.5, 1, 1, 0.5, 0.5, 0.7, 1.8, 0.5])
+    tb = st.columns([1.5, 0.4, 0.4, 0.5, 0.5, 0.4, 0.7, 1.3, 0.5])
     with tb[0]:
         s = st.text_input("", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
@@ -842,25 +856,13 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.ricerca = s
             st.rerun()
     with tb[1]:
-        fc = st.selectbox("", [""] + colonne_dati, label_visibility="collapsed",
-                          index=0 if not st.session_state.filtro_col
-                          else (colonne_dati.index(st.session_state.filtro_col) + 1) if st.session_state.filtro_col in colonne_dati else 0)
-        if fc != st.session_state.filtro_col:
-            st.session_state.filtro_col = fc
-            st.session_state.filtro_val = ""
+        if st.button("+F", type="tertiary", help="Aggiungi filtro"):
+            st.session_state.filtri.append({"colonna": "", "valore": ""})
             st.rerun()
     with tb[2]:
-        if st.session_state.filtro_col:
-            c = st.session_state.filtro_col
-            unique_vals = sorted(df[c].dropna().unique())
-            prev = st.session_state.get("filtro_val", "")
-            fv = st.selectbox("", ["(Tutti)"] + [str(v) for v in unique_vals],
-                              index=0 if not prev or prev == "(Tutti)"
-                              else ([str(v) for v in unique_vals].index(prev) + 1) if prev in [str(v) for v in unique_vals] else 0,
-                              label_visibility="collapsed")
-            if fv != st.session_state.get("filtro_val", ""):
-                st.session_state.filtro_val = fv
-                st.rerun()
+        if st.button("Grafico", type="tertiary", help="Grafico rapido"):
+            st.session_state.mostra_grafico = not st.session_state.get("mostra_grafico", False)
+            st.rerun()
     with tb[3]:
         if puo_modificare:
             if st.button("Nuovo", type="tertiary"):
@@ -879,7 +881,11 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "configura_campi"
             st.rerun()
     with tb[6]:
-        v_opts = {"Tabella": "tabella", "Kanban": "kanban", "Calendario": "calendario", "Dashboard": "dashboard"}
+        if st.button("Log", type="tertiary", help="Log modifiche"):
+            st.session_state.mostra_log = not st.session_state.get("mostra_log", False)
+            st.rerun()
+    with tb[7]:
+        v_opts = {"Tabella": "tabella", "Kanban": "kanban", "Calendario": "calendario", "Lista": "lista", "Dashboard": "dashboard", "Pivot": "pivot"}
         cur = st.session_state.visuale
         sel = st.selectbox("", list(v_opts.keys()),
                            index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
@@ -887,7 +893,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         if v_opts[sel] != cur:
             st.session_state.visuale = v_opts[sel]
             st.rerun()
-    with tb[7]:
+    with tb[6]:
         if st.button("Ricarica", type="tertiary", help="Ricarica dati"):
             try:
                 buf, foglio_db = db.get_file_contenuto(fid)
@@ -902,21 +908,86 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 msg(f"Errore: {e}", "error")
             st.rerun()
 
-    # ── FILTER ──
+    # ── FILTRI MULTIPLI ──
+    if st.session_state.filtri:
+        for idx, filtro in enumerate(st.session_state.filtri):
+            cols = st.columns([1, 1, 0.3])
+            with cols[0]:
+                col = st.selectbox("", [""] + colonne_dati,
+                                   index=0 if not filtro["colonna"]
+                                   else (colonne_dati.index(filtro["colonna"]) + 1) if filtro["colonna"] in colonne_dati else 0,
+                                   label_visibility="collapsed", key=f"f_col_{idx}")
+            with cols[1]:
+                if col and col in df.columns:
+                    unique_vals = sorted(df[col].dropna().unique())
+                    prev = filtro.get("valore", "")
+                    val = st.selectbox("", ["(Tutti)"] + [str(v) for v in unique_vals],
+                                       index=0 if not prev or prev == "(Tutti)"
+                                       else ([str(v) for v in unique_vals].index(prev) + 1) if prev in [str(v) for v in unique_vals] else 0,
+                                       label_visibility="collapsed", key=f"f_val_{idx}")
+                else:
+                    val = "(Tutti)"
+            with cols[2]:
+                if st.button("X", key=f"f_del_{idx}"):
+                    st.session_state.filtri.pop(idx)
+                    st.rerun()
+            if col != filtro.get("colonna", ""):
+                st.session_state.filtri[idx]["colonna"] = col
+                st.session_state.filtri[idx]["valore"] = ""
+                st.rerun()
+            if val != filtro.get("valore", ""):
+                st.session_state.filtri[idx]["valore"] = val
+                st.rerun()
+
+    # ── APPLICA FILTRI ──
     view_df = df
     if st.session_state.ricerca:
         q = st.session_state.ricerca.lower()
         mask = view_df[colonne_dati].astype(str).apply(lambda x: x.str.lower().str.contains(q, na=False)).any(axis=1)
         view_df = view_df[mask]
 
-    if st.session_state.filtro_col and st.session_state.filtro_val and st.session_state.filtro_val != "(Tutti)":
-        c = st.session_state.filtro_col
-        v = st.session_state.filtro_val
-        if c in view_df.columns:
+    for filtro in st.session_state.filtri:
+        c = filtro.get("colonna", "")
+        v = filtro.get("valore", "")
+        if c and v and v != "(Tutti)" and c in view_df.columns:
             view_df = view_df[view_df[c].astype(str) == v]
 
+    # ── GRAFICO RAPIDO ──
+    if st.session_state.get("mostra_grafico", False):
+        gc1, gc2, gc3 = st.columns([1, 1, 0.3])
+        with gc1:
+            gcol = st.selectbox("Colonna", [""] + colonne_dati, label_visibility="collapsed", key="graf_col")
+        with gc2:
+            gtipo = st.selectbox("Tipo", ["bar", "line", "area"], label_visibility="collapsed", key="graf_tipo")
+        with gc3:
+            if st.button("X", key="graf_close"):
+                st.session_state.mostra_grafico = False
+                st.rerun()
+        if gcol and gcol in view_df.columns:
+            ser = pd.to_numeric(view_df[gcol], errors='coerce').dropna()
+            if gtipo == "bar":
+                st.bar_chart(ser.value_counts().head(30), height=250)
+            elif gtipo == "line":
+                st.line_chart(ser.value_counts().sort_index(), height=250)
+            else:
+                st.area_chart(ser.value_counts().sort_index(), height=250)
+
+    # ── LOG MODIFICHE ──
+    if st.session_state.get("mostra_log", False):
+        logs = db.get_log(fid)
+        if logs:
+            for l in logs:
+                st.caption(f"#{l['record_id'] or '-'} | {l['utente_nome'] or '?'} | {l['azione']} | {l['created'][:16]}")
+                if l['dettaglio']:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{l['dettaglio']}")
+        else:
+            st.info("Nessuna modifica registrata.")
+        st.divider()
+
     total = len(view_df)
-    st.caption(f"{total} record{' (filtrati da ' + str(len(df)) + ' totali)' if total != len(df) else ''}")
+    n_filtri = len([f for f in st.session_state.filtri if f.get("colonna") and f.get("valore") and f["valore"] != "(Tutti)"])
+    filtri_label = f" + {n_filtri} filtri" if n_filtri else ""
+    st.caption(f"{total} record{filtri_label}" + (f" (su {len(df)} totali)" if total != len(df) else ""))
 
     if view_df.empty:
         st.warning("Nessun record trovato")
@@ -1130,12 +1201,74 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 if puo_modificare and st.button("Elimina", use_container_width=True):
                     ok, err = db.elimina_record(fid, rid, st.session_state.utente["id"], st.session_state.utente["ruolo"])
                     if ok:
+                        db.log_azione(fid, rid, st.session_state.utente["id"], "eliminato", "Record eliminato")
                         msg(f" Record #{rid} eliminato")
                     else:
                         msg(err, "error")
                     st.rerun()
         else:
             st.info("Seleziona una riga per vedere le azioni")
+
+    # ── LISTA ────────────────────────────────────────────────────
+    if st.session_state.visuale == "lista":
+        display_cols = colonne_dati[:]
+        if st.session_state.formula_mode:
+            view_df_display = aplicar_formulas(view_df, display_cols)
+        else:
+            view_df_display = view_df
+        for idx in view_df_display.index:
+            rec = view_df_display.loc[idx]
+            cols = st.columns([0.3, 3, 1, 0.5])
+            with cols[0]:
+                st.caption(f"#{int(rec['id'])}")
+            with cols[1]:
+                preview = " | ".join(str(rec[c]) for c in display_cols[:3] if pd.notna(rec[c]))
+                st.markdown(preview)
+            with cols[2]:
+                if st.button("Vedi", key=f"l_vedi_{int(rec['id'])}"):
+                    st.session_state.vedi_id = int(rec["id"])
+                    st.session_state.pagina = "dettaglio_record"
+                    st.rerun()
+            with cols[3]:
+                if puo_modificare and st.button("Modifica", key=f"l_mod_{int(rec['id'])}"):
+                    st.session_state.modifica_id = int(rec["id"])
+                    st.session_state.pagina = "modifica_record"
+                    st.rerun()
+            st.divider()
+
+    # ── PIVOT ────────────────────────────────────────────────────
+    if st.session_state.visuale == "pivot":
+        pc1, pc2, pc3, pc4 = st.columns([1, 1, 1, 0.3])
+        with pc1:
+            riga = st.selectbox("Riga", [""] + colonne_dati, label_visibility="collapsed", key="pivot_riga")
+        with pc2:
+            valore = st.selectbox("Valore", [""] + colonne_dati, label_visibility="collapsed", key="pivot_val")
+        with pc3:
+            agg = st.selectbox("Aggregazione", ["count", "sum", "avg", "min", "max"], label_visibility="collapsed", key="pivot_agg")
+        with pc4:
+            if st.button("X", key="pivot_close"):
+                st.session_state.visuale = "tabella"
+                st.rerun()
+        if riga and valore and riga in df.columns and valore in df.columns:
+            try:
+                if agg == "count":
+                    pivot = df.groupby(riga)[valore].count().reset_index()
+                elif agg == "sum":
+                    pivot = df.groupby(riga)[pd.to_numeric(df[valore], errors='coerce')].sum().reset_index()
+                elif agg == "avg":
+                    pivot = df.groupby(riga)[pd.to_numeric(df[valore], errors='coerce')].mean().reset_index()
+                elif agg == "min":
+                    pivot = df.groupby(riga)[pd.to_numeric(df[valore], errors='coerce')].min().reset_index()
+                else:
+                    pivot = df.groupby(riga)[pd.to_numeric(df[valore], errors='coerce')].max().reset_index()
+                pivot.columns = [riga, f"{agg}_{valore}"]
+                st.dataframe(pivot, use_container_width=True, hide_index=True)
+                st.bar_chart(pivot.set_index(riga), height=250)
+            except Exception as e:
+                st.caption(f"Errore: {e}")
+        else:
+            st.info("Seleziona colonna Riga e Valore per creare una tabella pivot.")
+        st.stop()
 
     # ── DASHBOARD ───────────────────────────────────────────────────
     if st.session_state.visuale == "dashboard":
