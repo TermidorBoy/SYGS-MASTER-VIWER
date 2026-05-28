@@ -136,7 +136,39 @@ def init_db(admin_email=None, admin_nome=None, admin_password=None):
     conn.close()
 
 
+def init_log_table():
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS log_modifiche (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            record_id INTEGER,
+            utente_id INTEGER NOT NULL,
+            azione TEXT NOT NULL,
+            dettaglio TEXT,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE,
+            FOREIGN KEY (utente_id) REFERENCES utenti(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS commenti (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            record_id INTEGER NOT NULL,
+            utente_id INTEGER NOT NULL,
+            testo TEXT NOT NULL,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (file_id) REFERENCES file_excel(id) ON DELETE CASCADE,
+            FOREIGN KEY (utente_id) REFERENCES utenti(id) ON DELETE CASCADE
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
 def log_azione(file_id, record_id, utente_id, azione, dettaglio=""):
+    init_log_table()
     conn = get_conn()
     conn.execute("INSERT INTO log_modifiche (file_id, record_id, utente_id, azione, dettaglio) VALUES (?,?,?,?,?)",
                  (file_id, record_id, utente_id, azione, dettaglio))
@@ -145,6 +177,7 @@ def log_azione(file_id, record_id, utente_id, azione, dettaglio=""):
 
 
 def get_log(file_id, limit=50):
+    init_log_table()
     conn = get_conn()
     rows = conn.execute("""
         SELECT l.*, u.nome as utente_nome
@@ -159,6 +192,7 @@ def get_log(file_id, limit=50):
 
 
 def aggiungi_commento(file_id, record_id, utente_id, testo):
+    init_log_table()
     conn = get_conn()
     conn.execute("INSERT INTO commenti (file_id, record_id, utente_id, testo) VALUES (?,?,?,?)",
                  (file_id, record_id, utente_id, testo))
@@ -167,6 +201,7 @@ def aggiungi_commento(file_id, record_id, utente_id, testo):
 
 
 def get_commenti(file_id, record_id):
+    init_log_table()
     conn = get_conn()
     rows = conn.execute("""
         SELECT c.*, u.nome as utente_nome
