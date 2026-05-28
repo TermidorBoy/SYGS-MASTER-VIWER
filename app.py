@@ -1308,8 +1308,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                         st.rerun()
             elif n_sel > 1:
                 # ── EDIT MULTIPLA (#1) ──
-                rids = [int(view_df.iloc[view_df.index[ev.selection.rows[i]]["id"]])
-                        for i in range(n_sel)]
+                rids = [int(view_df.iloc[ev.selection.rows[i]]["id"]) for i in range(n_sel)]
                 st.divider()
                 st.markdown(f"**{n_sel} record selezionati**")
                 if st.button("Annulla selezione", use_container_width=False):
