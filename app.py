@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import hashlib
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 import openpyxl
 import database as db
 
@@ -1009,6 +1009,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.warning("⚠️ Colonna data non configurata. Vai su **⚙️ Campi → 📋 Stati** per selezionare la colonna data per il calendario.")
             st.stop()
 
+        oggi = date.today()
         events = []
         for _, rec in view_df.iterrows():
             val = rec.get(col_data)
@@ -1016,7 +1017,16 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
                 try:
                     start = str(val)[:10]
                     titolo = str(rec.get(col_titolo, "")) if col_titolo and col_titolo in rec and pd.notna(rec.get(col_titolo)) else f"#{int(rec['id'])}"
-                    events.append({"id": str(int(rec["id"])), "title": titolo, "start": start})
+                    ev = {"id": str(int(rec["id"])), "title": titolo, "start": start}
+                    try:
+                        if datetime.strptime(start, "%Y-%m-%d").date() < oggi:
+                            ev["backgroundColor"] = "#EF4444"
+                            ev["borderColor"] = "#DC2626"
+                            ev["textColor"] = "#FFFFFF"
+                            ev["title"] = "⚠ " + titolo
+                    except Exception:
+                        pass
+                    events.append(ev)
                 except Exception:
                     pass
 
