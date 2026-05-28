@@ -814,12 +814,11 @@ def ricrea_tabella_da_config(file_id: int) -> list:
         if not safe or safe[0].isdigit():
             safe = 'col_' + safe
         safe = safe or 'colonna'
-        if safe in seen:
-            i = 2
-            while f"{safe}_{i}" in seen:
-                i += 1
-            safe = f"{safe}_{i}"
-        seen.add(safe)
+        safe_lower = safe.lower()
+        while safe_lower in seen:
+            safe += "_"
+            safe_lower = safe.lower()
+        seen.add(safe_lower)
         return safe
 
     system_cols = {"id", "creato_da", "creato_il"}
