@@ -6,36 +6,9 @@ from datetime import datetime, date
 import openpyxl
 import database as db
 
-# ── Cookie helpers (persistenza F5 senza esporre la sessione nella URL) ──
-def _set_cookie(name, value, max_age=604800):
-    st.markdown(f"""<script>document.cookie="{name}={value};path=/;max-age={max_age};SameSite=Lax;Secure";</script>""", unsafe_allow_html=True)
-
-def _del_cookie(name):
-    st.markdown(f"""<script>document.cookie="{name}=;path=/;max-age=0;SameSite=Lax;Secure";</script>""", unsafe_allow_html=True)
-
-def _cookie_to_url(cname="sygs_sid", pname="_sid"):
-    """Se il cookie esiste, lo trasferisce in query param e ricarica."""
-    st.markdown(f"""<script>
-(function(){{
-    const m=document.cookie.match(new RegExp('(^| ){cname}=([^;]+)'));
-    if(m && m[2] && !window.location.search.includes('{pname}=')){{
-        const u=new URL(window.location);
-        u.searchParams.set('{pname}',m[2]);
-        window.history.replaceState({{}},'',u);
-        window.location.reload();
-    }}
-}})();
-</script>""", unsafe_allow_html=True)
-
-def _remove_url_param(pname="_sid"):
-    """Rimuove un query param dalla barra indirizzi via JS."""
-    st.markdown(f"""<script>
-(function(){{
-    const u=new URL(window.location);
-    u.searchParams.delete('{pname}');
-    window.history.replaceState({{}},'',u);
-}})();
-</script>""", unsafe_allow_html=True)
+# ── Gestione sessione (query param F5 + server-side DB) ──
+# La URL mostra ?sid=uuid (non derivabile, non contiene dati utente)
+# Condividere la URL dà accesso temporaneo (stessa logica di un cookie "ricordami")
 
 # ── Carica .env se esiste (per esecuzione locale) ──
 _env_path = Path(__file__).parent / ".env"
@@ -195,22 +168,16 @@ ADMIN_PASSWORD = "la tua password"
     st.stop()
 db.init_db(admin_email=ADMIN_EMAIL, admin_nome=ADMIN_NOME, admin_password=ADMIN_PASSWORD)
 
-# ── Ripristina sessione (cookie → URL sicura, sopravvive a F5) ──
+# ── Ripristina sessione da query param (sopravvive a F5) ──
 if not st.session_state.utente:
     if "_sid" in st.query_params:
         sid = st.query_params["_sid"]
-        del st.query_params["_sid"]
         if sid:
             utente = db.leggi_sessione(sid)
             if utente:
                 st.session_state.utente = utente
                 st.session_state.sid = sid
                 st.session_state.pagina = "dashboard"
-        _remove_url_param("_sid")
-    else:
-        # Se il cookie esiste, JS lo copia in ?_sid= e ricarica
-        # Se non esiste, si prosegue verso il login
-        _cookie_to_url()
 
 # ── SIDEBAR ─────────────────────────────────────────────────────
 with st.sidebar:
@@ -279,8 +246,7 @@ with st.sidebar:
             sid = st.session_state.get("sid")
             if sid:
                 db.elimina_sessione(sid)
-            _del_cookie("sygs_sid")
-            _remove_url_param("_sid")
+            st.query_params.clear()
             st.session_state.utente = None
             st.session_state.pagina = "login"
             st.session_state.file_id = None
@@ -531,7 +497,7 @@ if st.session_state.pagina == "login":
                 utente = db.login(email, password)
                 if utente:
                     sid = db.crea_sessione(utente)
-                    _set_cookie("sygs_sid", sid)
+                    st.query_params["_sid"] = sid
                     st.session_state.utente = utente
                     st.session_state.sid = sid
                     st.session_state.pagina = "dashboard"
