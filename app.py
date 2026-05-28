@@ -602,54 +602,49 @@ elif st.session_state.pagina == "carica":
     st.markdown('<div class="page-sub">Importa un file Excel/CSV oppure creane uno nuovo da zero</div>', unsafe_allow_html=True)
 
     with st.expander("Crea nuovo file vuoto", expanded=False):
-        with st.form("nuovo_file_vuoto", border=False):
-            nome_tab = st.text_input("Nome file", placeholder="Es: Clienti, Ordini, Prodotti...")
-            st.caption("Aggiungi colonne (almeno una):")
-            if "nf_colonne" not in st.session_state:
-                st.session_state.nf_colonne = [("", "text")]
-            for i, (cn, ct) in enumerate(st.session_state.nf_colonne):
-                c1, c2, c3 = st.columns([2, 1, 0.3])
-                with c1:
-                    st.session_state.nf_colonne[i] = (
-                        st.text_input("Nome", value=cn, key=f"nf_nome_{i}", label_visibility="collapsed", placeholder="Nome colonna"),
-                        ct,
-                    )
-                with c2:
-                    st.session_state.nf_colonne[i] = (
-                        st.session_state.nf_colonne[i][0],
-                        st.selectbox("Tipo", ["text", "number", "date", "boolean", "single_select", "auto_number"],
-                                     index=["text", "number", "date", "boolean", "single_select", "auto_number"].index(ct) if ct in ["text", "number", "date", "boolean", "single_select", "auto_number"] else 0,
-                                     key=f"nf_tipo_{i}", label_visibility="collapsed"),
-                    )
-                with c3:
-                    if st.button("X", key=f"nf_del_{i}"):
-                        st.session_state.nf_colonne.pop(i)
-                        st.rerun()
-            if st.button("+ Aggiungi colonna", type="tertiary", use_container_width=False):
-                st.session_state.nf_colonne.append(("", "text"))
-                st.rerun()
-            if st.form_submit_button("Crea file", use_container_width=True, type="primary"):
-                nomi_validi = [c[0].strip() for c in st.session_state.nf_colonne if c[0].strip()]
-                if not nome_tab.strip():
-                    msg("Inserisci un nome per il file", "warning")
-                elif not nomi_validi:
-                    msg("Aggiungi almeno una colonna", "warning")
-                else:
-                    fid = db.salva_file_excel(st.session_state.utente["id"], nome_tab.strip(),
-                                              "Sheet1", nomi_validi, 0, None)
-                    tipi = {c[0].strip(): c[1] for c in st.session_state.nf_colonne if c[0].strip()}
-                    db.init_data_table_vuoto(fid, nomi_validi)
-                    db.init_campi_config(fid, nomi_validi)
-                    for nome_col, tipo_col in tipi.items():
-                        cfg = db.get_campi_config(fid)
-                        for c in cfg:
-                            if c["nome_campo"] == nome_col and tipo_col != "text":
-                                db.aggiorna_campo_config(c["id"], tipo_campo=tipo_col)
-                    st.session_state.file_id = fid
-                    st.session_state.nf_colonne = [("", "text")]
-                    st.session_state.pagina = "configura_campi"
-                    msg(f"File '{nome_tab.strip()}' creato con {len(nomi_validi)} colonne")
+        if "nf_colonne" not in st.session_state:
+            st.session_state.nf_colonne = [("", "text")]
+        nome_tab = st.text_input("Nome file", placeholder="Es: Clienti, Ordini, Prodotti...", key="nf_nome_file")
+        st.caption("Aggiungi colonne (almeno una):")
+        for i, (cn, ct) in enumerate(st.session_state.nf_colonne):
+            c1, c2, c3 = st.columns([2, 1, 0.3])
+            with c1:
+                nuovo_cn = st.text_input("Nome", value=cn, key=f"nf_nome_{i}", label_visibility="collapsed", placeholder="Nome colonna")
+            with c2:
+                nuovo_ct = st.selectbox("Tipo", ["text", "number", "date", "boolean", "single_select", "auto_number"],
+                                        index=["text", "number", "date", "boolean", "single_select", "auto_number"].index(ct) if ct in ["text", "number", "date", "boolean", "single_select", "auto_number"] else 0,
+                                        key=f"nf_tipo_{i}", label_visibility="collapsed")
+            with c3:
+                if st.button("X", key=f"nf_del_{i}"):
+                    st.session_state.nf_colonne.pop(i)
                     st.rerun()
+            st.session_state.nf_colonne[i] = (nuovo_cn if nuovo_cn else cn, nuovo_ct)
+        if st.button("+ Aggiungi colonna", type="tertiary", use_container_width=False):
+            st.session_state.nf_colonne.append(("", "text"))
+            st.rerun()
+        if st.button("Crea file", use_container_width=True, type="primary"):
+            nomi_validi = [c[0].strip() for c in st.session_state.nf_colonne if c[0].strip()]
+            nome_tab_val = nome_tab if nome_tab else st.session_state.get("nf_nome_file", "")
+            if not nome_tab_val.strip():
+                msg("Inserisci un nome per il file", "warning")
+            elif not nomi_validi:
+                msg("Aggiungi almeno una colonna", "warning")
+            else:
+                fid = db.salva_file_excel(st.session_state.utente["id"], nome_tab_val.strip(),
+                                          "Sheet1", nomi_validi, 0, None)
+                tipi = {c[0].strip(): c[1] for c in st.session_state.nf_colonne if c[0].strip()}
+                db.init_data_table_vuoto(fid, nomi_validi)
+                db.init_campi_config(fid, nomi_validi)
+                for nome_col, tipo_col in tipi.items():
+                    cfg = db.get_campi_config(fid)
+                    for c in cfg:
+                        if c["nome_campo"] == nome_col and tipo_col != "text":
+                            db.aggiorna_campo_config(c["id"], tipo_campo=tipo_col)
+                st.session_state.file_id = fid
+                st.session_state.nf_colonne = [("", "text")]
+                st.session_state.pagina = "configura_campi"
+                msg(f"File '{nome_tab_val.strip()}' creato con {len(nomi_validi)} colonne")
+                st.rerun()
 
     st.divider()
     st.markdown("#### Oppure importa da file")
