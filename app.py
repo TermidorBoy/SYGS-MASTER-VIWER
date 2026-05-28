@@ -1117,9 +1117,20 @@ elif st.session_state.pagina == "configura_campi":
             with cols[4]:
                 is_select = tipo in ("single_select", "multi_select")
                 if is_select:
+                    opts_key = f"opts_{campo['id']}"
+                    csv_key = f"csv_{campo['id']}"
                     current_opts = ", ".join(campo.get("opzioni", [])) if campo.get("opzioni") else ""
-                    opts_str = st.text_input("Opzioni", value=current_opts,
-                                             key=f"opts_{campo['id']}", label_visibility="collapsed",
+                    csv_file = st.file_uploader("CSV", type=["csv"], key=csv_key, label_visibility="collapsed")
+                    if csv_file:
+                        try:
+                            df_csv = pd.read_csv(csv_file)
+                            if not df_csv.empty:
+                                vals = df_csv.iloc[:, 0].dropna().astype(str).tolist()
+                                st.session_state[opts_key] = ", ".join(vals)
+                        except Exception:
+                            pass
+                    opts_str = st.text_input("Opzioni", value=st.session_state.get(opts_key, current_opts),
+                                             key=opts_key, label_visibility="collapsed",
                                              placeholder="Opz1, Opz2, ...")
                 else:
                     dv = campo.get("valore_predefinito") or ""
