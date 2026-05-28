@@ -161,52 +161,41 @@ with st.sidebar:
 
         # Navigation
         nav_items = [
-            ("", "Dashboard", "dashboard"),
-            ("", "Carica Excel", "carica"),
+            ("Dashboard", "dashboard"),
+            ("Carica Excel", "carica"),
         ]
         if u["ruolo"] == "admin":
-            nav_items.append(("", "Gestione Utenti", "utenti"))
+            nav_items.append(("Gestione Utenti", "utenti"))
 
-        for icon, label, page in nav_items:
-            if st.button(f"{icon}  {label}", use_container_width=True, type="secondary" if st.session_state.pagina != page else "primary"):
+        for label, page in nav_items:
+            if st.button(label, use_container_width=True, type="secondary" if st.session_state.pagina != page else "primary"):
                 cambia_pagina(page)
 
         st.divider()
 
-        # File list con ordinamento, esportazione ed eliminazione
+        # File list — trascina il numero per riordinare
         files = db.file_utente(u["id"])
         if files:
             st.markdown("**File**")
+            nf = len(files)
             for i, f in enumerate(files):
-                is_active = st.session_state.file_id == f["id"]
-                cols = st.columns([1.2, 3.5, 1.5, 1.5])
-                with cols[0]:
-                    st.markdown("" if is_active else "")
-                with cols[1]:
-                    lbl = f["nome_file"]
-                    if st.button(lbl, key=f"side_f_{f['id']}",
-                                 use_container_width=True, type="secondary" if not is_active else "primary"):
+                c1, c2 = st.columns([0.6, 4])
+                with c1:
+                    pos = st.number_input("", value=i+1, min_value=1, max_value=nf,
+                                          label_visibility="collapsed", key=f"pos_{f['id']}")
+                with c2:
+                    if st.button(f["nome_file"], key=f"side_f_{f['id']}",
+                                 use_container_width=True, type="secondary" if st.session_state.file_id != f["id"] else "primary"):
                         st.session_state.file_id = f["id"]
                         st.session_state.pagina = "vedi_file"
                         st.rerun()
-                with cols[2]:
-                    if i > 0:
-                        if st.button("Su", key=f"up_{f['id']}", help="Sposta su"):
-                            f_prev = files[i-1]
-                            o_cur, o_prev = f["ordine"], f_prev["ordine"]
-                            db.aggiorna_ordine_file(f["id"], o_prev)
-                            db.aggiorna_ordine_file(f_prev["id"], o_cur)
-                            db.rinumera_ordini(u["id"])
-                            st.rerun()
-                with cols[3]:
-                    if st.button("Gi", key=f"dn_{f['id']}", help="Sposta giù"):
-                        if i < len(files) - 1:
-                            f_next = files[i+1]
-                            o_cur, o_next = f["ordine"], f_next["ordine"]
-                            db.aggiorna_ordine_file(f["id"], o_next)
-                            db.aggiorna_ordine_file(f_next["id"], o_cur)
-                            db.rinumera_ordini(u["id"])
-                            st.rerun()
+                if pos != i+1:
+                    target = next((x for x in files if x["ordine"] == pos), None)
+                    if target and target["id"] != f["id"]:
+                        db.aggiorna_ordine_file(f["id"], pos)
+                        db.aggiorna_ordine_file(target["id"], i+1)
+                        db.rinumera_ordini(u["id"])
+                        st.rerun()
 
             # Gestione eliminazione con conferma
             elim_id = st.session_state.get("conferma_elimina")
@@ -247,7 +236,7 @@ with st.sidebar:
                             st.rerun()
 
         st.divider()
-        with st.expander(" Cambia password"):
+        with st.expander("Cambia password"):
             with st.form("cambia_mia_pw", border=False):
                 old = st.text_input("Password attuale", type="password", key="old_pw")
                 new1 = st.text_input("Nuova password", type="password", key="new_pw1")
@@ -263,7 +252,7 @@ with st.sidebar:
                     else:
                         msg("Compila tutti i campi", "warning")
         st.divider()
-        if st.button(" Esci", use_container_width=True):
+        if st.button("Esci", use_container_width=True):
             sid = st.session_state.get("sid")
             if sid:
                 db.elimina_sessione(sid)
@@ -856,15 +845,15 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
         st.stop()
 
     # ── TOOLBAR ──
-    tb = st.columns([1.5, 1, 1, 0.7, 0.7, 0.7, 0.7, 0.5, 0.5])
+    tb = st.columns([1.5, 1, 1, 0.7, 0.7, 0.7, 2.5, 0.5, 0.5])
     with tb[0]:
-        s = st.text_input(" Cerca", value=st.session_state.ricerca,
+        s = st.text_input("", value=st.session_state.ricerca,
                           placeholder="Cerca in tutto...", label_visibility="collapsed")
         if s != st.session_state.ricerca:
             st.session_state.ricerca = s
             st.rerun()
     with tb[1]:
-        fc = st.selectbox("Colonna", [""] + colonne_dati, label_visibility="collapsed",
+        fc = st.selectbox("", [""] + colonne_dati, label_visibility="collapsed",
                           index=0 if not st.session_state.filtro_col
                           else (colonne_dati.index(st.session_state.filtro_col) + 1) if st.session_state.filtro_col in colonne_dati else 0)
         if fc != st.session_state.filtro_col:
@@ -876,7 +865,7 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             c = st.session_state.filtro_col
             unique_vals = sorted(df[c].dropna().unique())
             prev = st.session_state.get("filtro_val", "")
-            fv = st.selectbox("Valore", ["(Tutti)"] + [str(v) for v in unique_vals],
+            fv = st.selectbox("", ["(Tutti)"] + [str(v) for v in unique_vals],
                               index=0 if not prev or prev == "(Tutti)"
                               else ([str(v) for v in unique_vals].index(prev) + 1) if prev in [str(v) for v in unique_vals] else 0,
                               label_visibility="collapsed")
@@ -903,13 +892,14 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
     with tb[6]:
         v_opts = {"Tabella": "tabella", "Kanban": "kanban", "Calendario": "calendario", "Dashboard": "dashboard"}
         cur = st.session_state.visuale
-        sel = st.selectbox("Vista", list(v_opts.keys()), index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
-                           label_visibility="collapsed", key="view_selector")
+        sel = st.radio("", list(v_opts.keys()),
+                       index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
+                       horizontal=True, label_visibility="collapsed")
         if v_opts[sel] != cur:
             st.session_state.visuale = v_opts[sel]
             st.rerun()
     with tb[7]:
-        f_label = "ƒx ON" if st.session_state.formula_mode else "ƒx OFF"
+        f_label = "fx ON" if st.session_state.formula_mode else "fx OFF"
         f_help = "Disattiva formule" if st.session_state.formula_mode else "Attiva formule tipo Excel"
         if st.button(f_label, use_container_width=True, help=f_help, type="primary" if st.session_state.formula_mode else "secondary"):
             st.session_state.formula_mode = not st.session_state.formula_mode
