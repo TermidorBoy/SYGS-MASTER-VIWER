@@ -901,11 +901,12 @@ elif st.session_state.pagina in ("vedi_file", "aggiungi_record", "modifica_recor
             st.session_state.pagina = "configura_campi"
             st.rerun()
     with tb[6]:
-        v_next = {"tabella": "kanban", "kanban": "calendario", "calendario": "dashboard", "dashboard": "tabella"}
-        v_lbl = {"tabella": "📋 Kanban", "kanban": "📅 Calendario", "calendario": "📊 Dashboard", "dashboard": "📊 Tabella"}
+        v_opts = {"📊 Tabella": "tabella", "📋 Kanban": "kanban", "📅 Calendario": "calendario", "📊 Dashboard": "dashboard"}
         cur = st.session_state.visuale
-        if st.button(v_lbl.get(cur, "📊 Tabella"), use_container_width=True, help="Cambia visuale"):
-            st.session_state.visuale = v_next.get(cur, "tabella")
+        sel = st.selectbox("Vista", list(v_opts.keys()), index=list(v_opts.values()).index(cur) if cur in v_opts.values() else 0,
+                           label_visibility="collapsed", key="view_selector")
+        if v_opts[sel] != cur:
+            st.session_state.visuale = v_opts[sel]
             st.rerun()
     with tb[7]:
         f_label = "ƒx ON" if st.session_state.formula_mode else "ƒx OFF"
